@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 from contextlib import contextmanager
 import logging
 import time
+import os
 
 from utils.logger import setup_logger, log_sql_execution
 from config.config_loader import get_config, ConfigurationError
@@ -68,7 +69,7 @@ class DatabricksClient:
                 access_token=self.access_token,
                 _retry_stop_after_attempts_count=3,  # 재시도 3회로 제한 (기본값: 24)
                 _socket_timeout=30,  # 30초 소켓 타임아웃
-                _tls_no_verify=True,  # SSL 검증 완전 비활성화 (개인 사용)
+                _tls_no_verify=os.environ.get('DATABRICKS_TLS_NO_VERIFY', 'false').lower() == 'true',
                 user_agent_entry="clinical_report_generator"
             )
             yield connection

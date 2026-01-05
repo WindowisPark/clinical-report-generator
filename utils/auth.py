@@ -12,6 +12,7 @@ import json
 from datetime import datetime
 import logging
 import os
+import secrets
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +30,15 @@ class AuthManager:
         """사용자 인증 정보 로드"""
         if not self.config_path.exists():
             # 기본 설정 파일 생성
+            # 환경 변수에서 쿠키 시크릿 키 가져오기 (없으면 랜덤 생성)
+            cookie_secret = os.environ.get('AUTH_COOKIE_SECRET', secrets.token_hex(32))
             default_config = {
                 'credentials': {
                     'usernames': {}
                 },
                 'cookie': {
                     'name': 'clinical_report_auth',
-                    'key': 'clinical_report_secret_key_2025',
+                    'key': cookie_secret,
                     'expiry_days': 30
                 },
                 'preauthorized': {
