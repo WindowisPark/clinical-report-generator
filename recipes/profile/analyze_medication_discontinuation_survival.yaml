@@ -1,0 +1,46 @@
+# 레시피 고유 이름
+name: analyze_medication_discontinuation_survival
+
+# 레시피 설명
+description: "특정 질환 및 약물에 대해, 약물 중단까지의 기간을 생존 분석(Survival Analysis) 형태로 분석합니다. 시간에 따른 약물 중단율을 파악할 수 있습니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "약물 중단"
+  - "생존 분석"
+  - "Survival Analysis"
+  - "Discontinuation"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석의 기준이 되는 질환명 키워드"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "target_therapeutic_class"
+    type: "string"
+    description: "분석 대상 치료제 계열"
+    required: true
+  - name: "analysis_period_days"
+    type: "integer"
+    description: "분석 기간(일)"
+    required: false
+    default: 730
+
+# 시각화 정보
+visualization:
+  chart_type: "line_chart"
+  x_column: "time_period"
+  y_column: "discontinuation_rate"
+  title: "기간별 약물 중단율"

@@ -1,0 +1,47 @@
+# 레시피 고유 이름
+name: analyze_overall_drug_topn
+
+# 레시피 설명
+description: "특정 질환에서 처방되는 약물 TOP N을 분석하여 해당 질환에서 가장 많이 사용되는 약물과 처방 패턴을 제공합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "질환별 약물"
+  - "TOP N 분석"
+  - "처방순위"
+  - "disease-specific drugs"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드 (예: 당뇨병, 고혈압)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "처방 이력 조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "처방 이력 조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_patients"
+    type: "integer"
+    description: "분석에 포함할 최소 환자 수 (예: 50)"
+    required: true
+    default: 50
+  - name: "top_n"
+    type: "integer"
+    description: "조회할 상위 약물 개수 (예: 30)"
+    required: true
+    default: 30
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "drug_ingredient"
+  y_column: "total_prescriptions"
+  title: "{{ disease_keyword }} 환자 처방 약물 TOP N"

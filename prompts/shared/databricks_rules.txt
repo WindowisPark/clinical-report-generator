@@ -1,0 +1,120 @@
+## Databricks/Spark SQL 필수 규칙
+
+### 날짜 필드 처리 (CRITICAL)
+- `res_treat_start_date`는 CHAR(200) 타입, 'YYYYMMDD' 형식 (예: '20230509')
+- `birthday`는 CHAR(8) 타입, 'YYYYMMDD' 형식 (예: '19860324')
+
+**올바른 사용법:**
+```sql
+-- 날짜 변환
+TO_DATE(res_treat_start_date, 'yyyyMMdd')
+TO_DATE(birthday, 'yyyyMMdd')
+
+-- 연령 계산
+YEAR(CURRENT_DATE) - YEAR(TO_DATE(birthday, 'yyyyMMdd'))
+
+-- 날짜 비교
+TO_DATE(res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE, 365)
+
+-- 날짜에서 연도 추출
+YEAR(TO_DATE(res_treat_start_date, 'yyyyMMdd'))
+```
+
+**절대 금지 (오류 발생):**
+```sql
+❌ YEAR(birthday)                          -- CHAR 타입에 YEAR() 직접 사용 불가
+❌ CAST(birthday AS DATE)                  -- 형식 지정 없이 CAST 불가
+❌ CAST(res_treat_start_date AS DATE)      -- 형식 지정 없이 CAST 불가
+❌ TO_DATE(res_treat_start_date)           -- 형식 지정 필수!
+```
+
+### Spark SQL 문법 규칙
+1. **정규식**: `RLIKE` 사용 (REGEXP 아님)
+   ```sql
+   WHERE res_hospital_name RLIKE '서울|부산'
+   ```
+
+2. **타입 변환**: `CAST AS INTEGER` (INT 아님)
+   ```sql
+   CAST(patient_count AS INTEGER)
+   ```
+
+3. **날짜 함수**: `DATE_SUB()`, `DATE_ADD()`, `DATEDIFF()`
+   ```sql
+   WHERE TO_DATE(res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE, 365)
+   ```
+
+4. **필수 조건**: basic_treatment, prescribed_drug 테이블 사용 시
+   ```sql
+   WHERE deleted = FALSE
+   ```
+
+### 병원 등급 분류 (res_hospital_code 3번째 자리 기반 - 권장)
+**res_hospital_code는 8자리 코드이며, 3번째 자리가 병원 차수를 나타냄**
+
+```sql
+CASE
+    WHEN SUBSTRING(res_hospital_code, 3, 1) = '1' THEN '3차'
+    WHEN SUBSTRING(res_hospital_code, 3, 1) = '2' THEN '2차'
+    WHEN SUBSTRING(res_hospital_code, 3, 1) = '3' THEN '1차'
+    WHEN SUBSTRING(res_hospital_code, 3, 1) = '8' THEN '약국'
+    ELSE '기타'
+END AS hospital_tier
+```
+
+**대체 방법 (res_hospital_name 기반 - 비권장):**
+```sql
+CASE
+    WHEN res_hospital_name LIKE '%대학교%' OR res_hospital_name LIKE '%의료원%' THEN '3차'
+    WHEN res_hospital_name LIKE '%병원%' THEN '2차'
+    WHEN res_hospital_name LIKE '%의원%' THEN '1차'
+    WHEN res_hospital_name LIKE '%약국%' THEN '약국'
+    ELSE '기타'
+END AS hospital_tier
+```
+
+### 지역 분류 (res_hospital_code 앞 2자리 기반 - 권장)
+**res_hospital_code는 8자리 코드이며, 앞 2자리가 시도(광역시/도) 코드를 나타냄**
+
+```sql
+CASE
+    WHEN SUBSTRING(res_hospital_code, 1, 2) IN ('11', '12') THEN '서울'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '21' THEN '부산'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '22' THEN '대구'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '23' THEN '인천'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '24' THEN '광주'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '25' THEN '대전'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '26' THEN '울산'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '29' THEN '세종'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) IN ('31', '41') THEN '경기'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '32' THEN '강원'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '33' THEN '충북'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '34' THEN '충남'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '35' THEN '전북'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '36' THEN '광주'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '37' THEN '대구'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '38' THEN '경남'
+    WHEN SUBSTRING(res_hospital_code, 1, 2) = '39' THEN '제주'
+    ELSE '기타'
+END AS region
+```
+
+**참고**: 광역시는 코드가 중복될 수 있음 (예: 36=광주, 37=대구)
+
+### 개인정보 마스킹
+```sql
+-- 이름 마스킹
+CONCAT(LEFT(name, 1), '**') AS masked_name
+
+-- 전화번호 마스킹
+CONCAT('***-****-', RIGHT(phone_number, 4)) AS masked_phone
+```
+
+### 조인 키
+- basic_treatment ↔ prescribed_drug: `user_id`, `res_treat_start_date`
+- basic_treatment ↔ insured_person: `user_id`
+- basic_treatment ↔ hospital: `company_identity` (비권장, res_hospital_name 사용 권장)
+
+### 성별 코드
+- 남성: `MAN`
+- 여성: `WOMAN`

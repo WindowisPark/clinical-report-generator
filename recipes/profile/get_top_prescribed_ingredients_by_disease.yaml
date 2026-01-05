@@ -1,0 +1,41 @@
+# 레시피 고유 이름
+name: get_top_prescribed_ingredients_by_disease
+
+# 레시피 설명
+description: "특정 질환에 대해 가장 많이 처방된 상위 약물 성분을 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "처방약"
+  - "약물 성분"
+  - "상위 N개"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "top_n"
+    type: "integer"
+    description: "상위 N개 약물 성분 조회"
+    required: false
+    default: 10
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"       # 차트 종류 (bar_chart, line_chart, area_chart, table)
+  x_column: "res_ingredients"    # X축으로 사용할 컬럼명
+  y_column: "prescription_count" # Y축으로 사용할 컬럼명
+  title: "주요 처방 약물 성분 (Top 10)" # 차트 제목

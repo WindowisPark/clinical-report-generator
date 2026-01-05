@@ -1,0 +1,35 @@
+# 레시피 고유 이름
+name: extract_patients_by_procedure_history
+
+# 레시피 설명
+description: "특정 수술/시술을 받은 환자 리스트를 추출하여 시술 기반 코호트를 구성합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "수술 시술"
+  - "환자군 추출"
+  - "procedure history"
+  - "surgery cohort"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "procedure_keyword"
+    type: "string"
+    description: "조회할 수술/시술명 키워드 (예: 수술, 시술)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "시술 이력 조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "시술 이력 조회 종료일 (YYYY-MM-DD)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "시술 기반 환자 리스트"

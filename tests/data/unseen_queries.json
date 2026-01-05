@@ -1,0 +1,229 @@
+[
+  {
+    "category": "reverse_question",
+    "query": "남성 환자 중 가장 흔한 질병 3가지는?",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["gender", "MAN", "COUNT", "LIMIT 3"],
+      "must_have_join": "user_id",
+      "should_execute": true
+    }
+  },
+  {
+    "category": "reverse_question",
+    "query": "50대가 가장 많이 걸리는 질환은?",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["birthday", "YEAR", "BETWEEN 50 AND 59"],
+      "must_have_join": "user_id",
+      "should_execute": true
+    }
+  },
+  {
+    "category": "reverse_question",
+    "query": "여성에게만 주로 나타나는 질병 TOP 5",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["gender", "WOMAN", "LIMIT 5"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "reverse_question",
+    "query": "20대 환자들이 주로 받는 처방 약물은?",
+    "validation": {
+      "must_have_tables": ["prescribed_drug", "insured_person"],
+      "must_have_keywords": ["birthday", "BETWEEN 20 AND 29"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "reverse_question",
+    "query": "노인 환자 비율이 높은 질병 순위",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["birthday", "65"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "comparison",
+    "query": "서울과 부산 지역 환자 수 비교",
+    "validation": {
+      "must_have_tables": ["basic_treatment"],
+      "must_have_keywords": ["res_hospital_name", "서울", "부산", "COUNT"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "comparison",
+    "query": "남성과 여성의 평균 처방 약물 개수 차이",
+    "validation": {
+      "must_have_tables": ["insured_person", "prescribed_drug"],
+      "must_have_keywords": ["gender", "AVG", "COUNT"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "comparison",
+    "query": "3차 병원과 1차 병원의 평균 환자 연령 비교",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_hospital_level", "birthday", "AVG"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "comparison",
+    "query": "수도권과 지방의 주요 질병 차이",
+    "validation": {
+      "must_have_tables": ["basic_treatment"],
+      "must_have_keywords": ["res_region", "COUNT", "GROUP BY"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "comparison",
+    "query": "양방과 한방 치료의 연령대별 선호도",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_disease_code", "birthday"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "timeseries",
+    "query": "최근 6개월간 월별 신규 환자 수",
+    "validation": {
+      "must_have_tables": ["basic_treatment"],
+      "must_have_keywords": ["res_treat_start_date", "TO_DATE", "DATE_SUB", "MONTH"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "timeseries",
+    "query": "작년 대비 올해 당뇨병 환자 증가율",
+    "validation": {
+      "must_have_tables": ["basic_treatment"],
+      "must_have_keywords": ["res_disease_code", "AE1", "YEAR", "COUNT"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "timeseries",
+    "query": "분기별 약물 처방량 변화",
+    "validation": {
+      "must_have_tables": ["prescribed_drug"],
+      "must_have_keywords": ["res_treat_start_date", "QUARTER", "COUNT"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "timeseries",
+    "query": "최근 1년간 가장 증가한 질병은?",
+    "validation": {
+      "must_have_tables": ["basic_treatment"],
+      "must_have_keywords": ["res_treat_start_date", "DATE_SUB", "COUNT"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "timeseries",
+    "query": "2023년과 2024년 고혈압 환자 수 비교",
+    "validation": {
+      "must_have_tables": ["basic_treatment"],
+      "must_have_keywords": ["res_disease_code", "AI1", "YEAR", "2023", "2024"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "complex_condition",
+    "query": "고혈압 또는 당뇨병을 가진 60세 이상 남성 환자",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_disease_code", "AI1", "AE1", "gender", "MAN", "birthday", "60"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "complex_condition",
+    "query": "서울 지역 3차 병원에서 암 치료받은 여성",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_hospital_name", "서울", "res_hospital_level", "3차", "res_disease_code", "gender", "WOMAN"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "complex_condition",
+    "query": "특정 약물을 처방받았지만 고혈압은 없는 환자",
+    "validation": {
+      "must_have_tables": ["prescribed_drug", "basic_treatment"],
+      "must_have_keywords": ["NOT IN", "res_disease_code", "AI1"],
+      "should_execute": false
+    }
+  },
+  {
+    "category": "complex_condition",
+    "query": "최근 3개월 방문하고 50대이며 서울 거주 환자",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_treat_start_date", "DATE_SUB", "birthday", "BETWEEN 50 AND 59", "서울"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "complex_condition",
+    "query": "감기 또는 독감으로 진단받은 20세 미만 환자",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_disease_code", "AJ", "birthday", "20"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "statistics",
+    "query": "약물 성분별 평균 처방 기간",
+    "validation": {
+      "must_have_tables": ["prescribed_drug"],
+      "must_have_keywords": ["res_ingredient_name", "AVG", "GROUP BY"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "statistics",
+    "query": "질병별 평균 환자 연령",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_disease_name", "birthday", "AVG", "GROUP BY"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "statistics",
+    "query": "환자 1인당 평균 처방 약물 개수",
+    "validation": {
+      "must_have_tables": ["prescribed_drug"],
+      "must_have_keywords": ["user_id", "AVG", "COUNT"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "statistics",
+    "query": "병원별 환자 재방문 비율",
+    "validation": {
+      "must_have_tables": ["basic_treatment"],
+      "must_have_keywords": ["res_hospital_name", "user_id", "COUNT", "HAVING"],
+      "should_execute": true
+    }
+  },
+  {
+    "category": "statistics",
+    "query": "연령대별 진료 횟수 분포",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["birthday", "YEAR", "COUNT", "GROUP BY"],
+      "should_execute": true
+    }
+  }
+]

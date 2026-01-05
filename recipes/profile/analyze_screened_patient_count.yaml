@@ -1,0 +1,28 @@
+# 레시피 고유 이름
+name: analyze_screened_patient_count
+
+# 레시피 설명
+description: "스크리닝된 임상시험 대상 환자의 총 수를 집계합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "환자 집계"
+  - "스크리닝 결과"
+  - "임상시험"
+  - "통계"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "screening_conditions"
+    type: "string"
+    description: "스크리닝 조건 설명 (예: 고혈압 환자 중 제외 기준 미충족)"
+    required: true
+    default: "임상시험 스크리닝 조건"
+
+# 시각화 정보
+visualization:
+  chart_type: "metric"
+  title: "스크리닝된 총 환자 수"

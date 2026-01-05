@@ -1,0 +1,36 @@
+# 레시피 고유 이름
+name: screen_clinical_trial_candidates
+
+# 레시피 설명
+description: "임상시험 후보자 선정을 위한 복잡한 스크리닝을 수행합니다. 연령, 지역(수도권)을 기준으로 기본 코호트를 설정하고, 기간이 적용된 상세한 제외 기준 리스트를 적용하여 최종 대상자를 추출합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "임상시험"
+  - "환자 스크리닝"
+  - "포함/제외 기준"
+  - "clinical trial"
+  - "candidate selection"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "exclusion_window_months"
+    type: "integer"
+    description: "제외 조건을 적용할 최근 기간(개월 수) (예: 24)"
+    required: true
+  - name: "min_age"
+    type: "integer"
+    description: "포함 기준이 되는 최소 연령 (예: 55)"
+    required: true
+  - name: "max_age"
+    type: "integer"
+    description: "포함 기준이 되는 최대 연령 (예: 75)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "임상시험 후보자 리스트"

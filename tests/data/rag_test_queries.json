@@ -1,0 +1,57 @@
+[
+  {
+    "category": "complex_disease_analysis",
+    "query": "고혈압과 당뇨병을 동시에 가진 환자 중 최근 1년간 처방받은 약물 성분 TOP 10과 각 성분의 평균 처방 일수",
+    "description": "RAG 테스트: 다중 질병 코드 + 복잡한 집계 + JOIN 3개",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "prescribed_drug"],
+      "must_have_keywords": ["res_disease_code", "AI1", "AE1", "res_ingredient_name", "AVG", "LIMIT 10"],
+      "must_have_join": "user_id",
+      "should_execute": true
+    }
+  },
+  {
+    "category": "temporal_disease_comparison",
+    "query": "2023년 대비 2024년에 암 환자가 증가한 병원 TOP 5와 각 병원의 증가율, 그리고 해당 병원의 평균 환자 연령",
+    "description": "RAG 테스트: 암 코드 + 시계열 비교 + 복잡한 집계",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_disease_code", "AC", "2023", "2024", "res_hospital_name", "LIMIT 5"],
+      "must_have_join": "user_id",
+      "should_execute": true
+    }
+  },
+  {
+    "category": "multi_disease_demographic",
+    "query": "조현병 또는 우울증 환자의 성별/연령대별(10세 단위) 분포와 각 그룹의 평균 병원 방문 횟수를 구하되, 50세 이상만 포함",
+    "description": "RAG 테스트: 정신질환 코드(AF2%, F3%) + 복잡한 GROUP BY + 필터링",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "insured_person"],
+      "must_have_keywords": ["res_disease_code", "gender", "birthday", "GROUP BY", "50"],
+      "must_have_join": "user_id",
+      "should_execute": true
+    }
+  },
+  {
+    "category": "regional_disease_cost",
+    "query": "서울/경기/부산 지역별로 고혈압 환자의 월평균 약물 처방 개수와 가장 많이 처방된 약물 3가지를 각각 구하기",
+    "description": "RAG 테스트: 고혈압 코드 + 지역별 집계 + 윈도우 함수/서브쿼리",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "prescribed_drug"],
+      "must_have_keywords": ["res_disease_code", "AI1", "res_hospital_name", "서울", "경기", "부산"],
+      "must_have_join": "user_id",
+      "should_execute": true
+    }
+  },
+  {
+    "category": "comorbidity_drug_pattern",
+    "query": "당뇨병과 비만을 동시에 가진 20-40대 여성 환자가 받은 처방 중 두 질병 모두에 사용되는 공통 약물 성분과 해당 성분의 총 처방 횟수",
+    "description": "RAG 테스트: 다중 질병 코드(AE1%, AE66%) + 교집합 분석 + 복잡한 조건",
+    "validation": {
+      "must_have_tables": ["basic_treatment", "prescribed_drug", "insured_person"],
+      "must_have_keywords": ["res_disease_code", "AE1", "AE66", "gender", "WOMAN", "birthday"],
+      "must_have_join": "user_id",
+      "should_execute": true
+    }
+  }
+]

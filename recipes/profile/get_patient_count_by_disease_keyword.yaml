@@ -1,0 +1,28 @@
+# 레시피 고유 이름
+name: get_patient_count_by_disease_keyword
+
+# 레시피 설명
+description: "특정 키워드(예: 혈증, 암)가 포함된 질환명을 가진 환자 수를 질환별로 집계합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "질환별"
+  - "환자 수"
+  - "키워드 검색"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "검색할 질환명 키워드 (예: 혈증)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "disease_name"
+  y_column: "patient_count"
+  title: "질환별 환자 수"

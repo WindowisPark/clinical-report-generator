@@ -1,0 +1,39 @@
+# 레시피 고유 이름
+name: extract_patients_by_medication_history
+
+# 레시피 설명
+description: "특정 약물(성분명/상품명)을 일정 기간 이상 복용한 환자 리스트를 추출하여 약물 기반 코호트를 구성합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "약물 기반"
+  - "환자군 추출"
+  - "medication history"
+  - "drug cohort"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "medication_keyword"
+    type: "string"
+    description: "조회할 약물명 키워드 (성분명 또는 상품명) (예: 메트포르민)"
+    required: true
+  - name: "min_prescription_days"
+    type: "integer"
+    description: "최소 처방 일수 (예: 90)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "처방 이력 조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "처방 이력 조회 종료일 (YYYY-MM-DD)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "약물 기반 환자 리스트"

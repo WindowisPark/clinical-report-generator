@@ -1,0 +1,63 @@
+# 레시피 고유 이름
+name: analyze_recruitment_feasibility
+
+# 레시피 설명
+description: "특정 질환에 대한 임상시험 모집 타당성을 분석합니다. 전체 환자 풀, 특정 기준(연령, 방문 횟수)을 만족하는 환자 풀, 최종 자격 만족 풀의 크기를 비교하여 모집 난이도를 예측합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "모집 타당성"
+  - "임상시험"
+  - "Recruitment Feasibility"
+  - "Clinical Trial"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석 대상 질환명 (예: 고혈압)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_age"
+    type: "integer"
+    description: "최소 연령"
+    required: false
+    default: 19
+  - name: "max_age"
+    type: "integer"
+    description: "최대 연령"
+    required: false
+    default: 120
+  - name: "min_visits"
+    type: "integer"
+    description: "최소 방문 횟수"
+    required: false
+    default: 1
+  - name: "target_enrollment"
+    type: "integer"
+    description: "목표 모집 인원"
+    required: true
+  - name: "expected_participation_rate"
+    type: "float"
+    description: "예상 참여율 (0.0-1.0)"
+    required: false
+    default: 0.1
+  - name: "expected_screening_rate"
+    type: "float"
+    description: "예상 스크리닝 통과율 (0.0-1.0)"
+    required: false
+    default: 0.5
+
+# 시각화 정보
+visualization:
+  chart_type: "metric"

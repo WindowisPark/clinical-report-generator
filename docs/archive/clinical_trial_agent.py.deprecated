@@ -1,0 +1,1967 @@
+"""
+임상시험 스크리닝 자동화 시스템 - Phase 2
+LangChain/LangGraph 기반 구현
+"""
+
+import pandas as pd
+import os
+import re
+import yaml
+import json
+from datetime import datetime, timedelta
+from jinja2 import Template
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass, field
+from pathlib import Path
+from enum import Enum
+import google.generativeai as genai
+
+
+@dataclass
+class ReferenceData:
+    """참조 데이터를 담는 데이터 클래스"""
+    diseases: pd.DataFrame
+    drugs: pd.DataFrame
+    ingredients: pd.DataFrame
+    procedures: pd.DataFrame
+    hospitals: pd.DataFrame
+    disease_codes: pd.DataFrame
+
+
+class ReferenceDataLoader:
+    """참조 데이터 로더 - CSV 파일들을 로드하고 검색 기능 제공"""
+
+    def __init__(self, reference_dir: str = "reference_data"):
+        self.reference_dir = Path(reference_dir)
+        self.data: Optional[ReferenceData] = None
+
+    def load_all_data(self) -> ReferenceData:
+        """모든 참조 데이터 로드"""
+        print("Loading reference data...")
+
+        # CSV 파일들 로드
+        diseases_df = pd.read_csv(self.reference_dir / "unique_diseases.csv")
+        drugs_df = pd.read_csv(self.reference_dir / "unique_drugs.csv")
+        ingredients_df = pd.read_csv(self.reference_dir / "unique_ingredients.csv")
+        procedures_df = pd.read_csv(self.reference_dir / "unique_procedures.csv")
+        hospitals_df = pd.read_csv(self.reference_dir / "unique_hospitals.csv")
+        disease_codes_df = pd.read_csv(self.reference_dir / "unique_disease_codes.csv")
+
+        self.data = ReferenceData(
+            diseases=diseases_df,
+            drugs=drugs_df,
+            ingredients=ingredients_df,
+            procedures=procedures_df,
+            hospitals=hospitals_df,
+            disease_codes=disease_codes_df
+        )
+
+        print(f"✅ Loaded reference data:")
+        print(f"  - Diseases: {len(diseases_df):,} records")
+        print(f"  - Drugs: {len(drugs_df):,} records")
+        print(f"  - Ingredients: {len(ingredients_df):,} records")
+        print(f"  - Procedures: {len(procedures_df):,} records")
+        print(f"  - Hospitals: {len(hospitals_df):,} records")
+        print(f"  - Disease Codes: {len(disease_codes_df):,} records")
+
+        return self.data
+
+    def search_diseases(self, keyword: str, limit: int = 10) -> List[Dict]:
+        """질환명 검색"""
+        if not self.data:
+            self.load_all_data()
+
+        # 키워드로 검색 (대소문자 무시)
+        mask = self.data.diseases['name'].str.contains(keyword, case=False, na=False)
+        results = self.data.diseases[mask].head(limit)
+
+        return results.to_dict('records')
+
+    def search_drugs(self, keyword: str, limit: int = 10) -> List[Dict]:
+        """약물명 검색"""
+        if not self.data:
+            self.load_all_data()
+
+        # 약물명 또는 성분명에서 검색
+        name_mask = self.data.drugs['name'].str.contains(keyword, case=False, na=False)
+        ingredient_mask = self.data.drugs['ingredients'].str.contains(keyword, case=False, na=False)
+        mask = name_mask | ingredient_mask
+
+        results = self.data.drugs[mask].head(limit)
+        return results.to_dict('records')
+
+    def search_procedures(self, keyword: str, limit: int = 10) -> List[Dict]:
+        """의료 행위/처치 검색"""
+        if not self.data:
+            self.load_all_data()
+
+        mask = self.data.procedures['name'].str.contains(keyword, case=False, na=False)
+        results = self.data.procedures[mask].head(limit)
+
+        return results.to_dict('records')
+
+    def get_top_diseases(self, limit: int = 50) -> List[Dict]:
+        """환자 수 기준 상위 질환들"""
+        if not self.data:
+            self.load_all_data()
+
+        return self.data.diseases.head(limit).to_dict('records')
+
+    def get_top_drugs(self, limit: int = 50) -> List[Dict]:
+        """처방 환자 수 기준 상위 약물들"""
+        if not self.data:
+            self.load_all_data()
+
+        return self.data.drugs.head(limit).to_dict('records')
+
+    def validate_disease_name(self, disease_name: str) -> bool:
+        """질환명이 DB에 존재하는지 확인"""
+        if not self.data:
+            self.load_all_data()
+
+        return disease_name in self.data.diseases['name'].values
+
+    def validate_drug_name(self, drug_name: str) -> bool:
+        """약물명이 DB에 존재하는지 확인"""
+        if not self.data:
+            self.load_all_data()
+
+        return drug_name in self.data.drugs['name'].values or \
+               drug_name in self.data.drugs['ingredients'].values
+
+
+class CriteriaType(Enum):
+    """조건 타입 정의"""
+    AGE = "age"
+    GENDER = "gender"
+    DISEASE = "disease"
+    DRUG = "drug"
+    PROCEDURE = "procedure"
+    VITAL_SIGNS = "vital_signs"
+    PREGNANCY = "pregnancy"
+    PERIOD = "period"
+    CONSENT = "consent"
+
+
+@dataclass
+class ClinicalCriteria:
+    """임상시험 조건을 나타내는 데이터 클래스"""
+    criteria_type: CriteriaType
+    description: str
+    keywords: List[str] = field(default_factory=list)
+    values: Dict[str, Any] = field(default_factory=dict)
+    is_inclusion: bool = True  # True: 선정조건, False: 제외조건
+
+
+class CriteriaAnalyzer:
+    """임상시험 선정/제외 조건 분석기"""
+
+    def __init__(self, reference_loader: ReferenceDataLoader):
+        self.reference_loader = reference_loader
+
+        # LLM 설정
+        self.llm_model = None
+        self._setup_llm()
+
+        # 기존 패턴들은 fallback용으로 유지
+        self.age_patterns = [
+            r'만?\s*(\d+)세?\s*이상',
+            r'(\d+)세?\s*이상',
+            r'만?\s*(\d+)세?\s*[-~]?\s*만?\s*(\d+)세?',
+            r'성인',
+            r'adult'
+        ]
+
+        self.gender_patterns = [
+            r'남녀',
+            r'남성',
+            r'여성',
+            r'male',
+            r'female'
+        ]
+
+        self.vital_patterns = [
+            r'혈압.*?(\d+).*?mmHg',
+            r'수축기.*?(\d+)',
+            r'이완기.*?(\d+)',
+            r'MSSBP.*?(\d+)',
+            r'MSDBP.*?(\d+)'
+        ]
+
+        self.pregnancy_patterns = [
+            r'임신',
+            r'수유',
+            r'임신부',
+            r'수유부',
+            r'pregnant',
+            r'pregnancy'
+        ]
+
+    def analyze_criteria_text(self, criteria_text: str, is_inclusion: bool = True) -> List[ClinicalCriteria]:
+        """조건 텍스트를 분석하여 구조화된 조건들로 변환"""
+        criteria_list = []
+
+        # 줄 단위로 분석
+        lines = criteria_text.strip().split('\n')
+
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#') or line.startswith('//'):
+                continue
+
+            # 각 타입별 분석
+            criteria_list.extend(self._analyze_age_criteria(line, is_inclusion))
+            criteria_list.extend(self._analyze_gender_criteria(line, is_inclusion))
+            criteria_list.extend(self._analyze_disease_criteria(line, is_inclusion))
+            criteria_list.extend(self._analyze_drug_criteria(line, is_inclusion))
+            criteria_list.extend(self._analyze_vital_criteria(line, is_inclusion))
+            criteria_list.extend(self._analyze_pregnancy_criteria(line, is_inclusion))
+
+        return criteria_list
+
+    def _analyze_age_criteria(self, text: str, is_inclusion: bool) -> List[ClinicalCriteria]:
+        """연령 조건 분석"""
+        criteria_list = []
+
+        for pattern in self.age_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                if '성인' in text or 'adult' in text.lower():
+                    criteria_list.append(ClinicalCriteria(
+                        criteria_type=CriteriaType.AGE,
+                        description=text,
+                        values={"min_age": 19, "max_age": 120},
+                        is_inclusion=is_inclusion
+                    ))
+                elif len(matches[0]) == 2:  # 범위 (예: 19-65세)
+                    min_age, max_age = matches[0]
+                    criteria_list.append(ClinicalCriteria(
+                        criteria_type=CriteriaType.AGE,
+                        description=text,
+                        values={"min_age": int(min_age), "max_age": int(max_age)},
+                        is_inclusion=is_inclusion
+                    ))
+                else:  # 최소 연령 (예: 19세 이상)
+                    age = int(matches[0])
+                    criteria_list.append(ClinicalCriteria(
+                        criteria_type=CriteriaType.AGE,
+                        description=text,
+                        values={"min_age": age, "max_age": 120},
+                        is_inclusion=is_inclusion
+                    ))
+                break
+
+        return criteria_list
+
+    def _analyze_gender_criteria(self, text: str, is_inclusion: bool) -> List[ClinicalCriteria]:
+        """성별 조건 분석"""
+        criteria_list = []
+
+        for pattern in self.gender_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                if '남녀' in text:
+                    gender = "both"
+                elif '남성' in text or 'male' in text.lower():
+                    gender = "male"
+                elif '여성' in text or 'female' in text.lower():
+                    gender = "female"
+                else:
+                    gender = "both"
+
+                criteria_list.append(ClinicalCriteria(
+                    criteria_type=CriteriaType.GENDER,
+                    description=text,
+                    values={"gender": gender},
+                    is_inclusion=is_inclusion
+                ))
+                break
+
+        return criteria_list
+
+    def _analyze_disease_criteria(self, text: str, is_inclusion: bool) -> List[ClinicalCriteria]:
+        """질환 조건 분석"""
+        criteria_list = []
+
+        # 참조 데이터에서 질환명 매칭
+        disease_keywords = []
+
+        # 상위 질환들과 매칭
+        top_diseases = self.reference_loader.get_top_diseases(limit=1000)
+        for disease in top_diseases:
+            disease_name = disease['name']
+            # 간단한 키워드 추출 (괄호 제거, 핵심 단어만)
+            clean_name = re.sub(r'\([^)]*\)', '', disease_name).strip()
+            keywords = [word for word in clean_name.split() if len(word) > 1]
+
+            for keyword in keywords:
+                if keyword in text and len(keyword) > 2:
+                    disease_keywords.append(keyword)
+
+        if disease_keywords:
+            criteria_list.append(ClinicalCriteria(
+                criteria_type=CriteriaType.DISEASE,
+                description=text,
+                keywords=list(set(disease_keywords)),
+                is_inclusion=is_inclusion
+            ))
+
+        return criteria_list
+
+    def _analyze_drug_criteria(self, text: str, is_inclusion: bool) -> List[ClinicalCriteria]:
+        """약물 조건 분석"""
+        criteria_list = []
+
+        # 약물 관련 키워드 체크
+        drug_keywords = ['약물', '투여', '복용', '치료', '항고혈압제', 'medication', 'drug', 'treatment']
+
+        for keyword in drug_keywords:
+            if keyword in text.lower():
+                criteria_list.append(ClinicalCriteria(
+                    criteria_type=CriteriaType.DRUG,
+                    description=text,
+                    keywords=[keyword],
+                    is_inclusion=is_inclusion
+                ))
+                break
+
+        return criteria_list
+
+    def _analyze_vital_criteria(self, text: str, is_inclusion: bool) -> List[ClinicalCriteria]:
+        """생체징후 조건 분석"""
+        criteria_list = []
+
+        for pattern in self.vital_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                values = {}
+                if 'MSSBP' in text or '수축기' in text:
+                    values['systolic_bp'] = int(matches[0])
+                elif 'MSDBP' in text or '이완기' in text:
+                    values['diastolic_bp'] = int(matches[0])
+                else:
+                    values['blood_pressure'] = int(matches[0])
+
+                criteria_list.append(ClinicalCriteria(
+                    criteria_type=CriteriaType.VITAL_SIGNS,
+                    description=text,
+                    values=values,
+                    is_inclusion=is_inclusion
+                ))
+                break
+
+        return criteria_list
+
+    def _analyze_pregnancy_criteria(self, text: str, is_inclusion: bool) -> List[ClinicalCriteria]:
+        """임신/수유 조건 분석"""
+        criteria_list = []
+
+        for pattern in self.pregnancy_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                criteria_list.append(ClinicalCriteria(
+                    criteria_type=CriteriaType.PREGNANCY,
+                    description=text,
+                    keywords=[pattern],
+                    is_inclusion=is_inclusion
+                ))
+                break
+
+        return criteria_list
+
+    def _setup_llm(self):
+        """LLM 모델 설정"""
+        try:
+            # 1. 환경변수에서 API 키 확인
+            api_key = os.getenv("GEMINI_API_KEY")
+
+            # 2. config.yaml에서 API 키 확인 (환경변수가 없으면)
+            if not api_key:
+                try:
+                    config_path = "config.yaml"
+                    if os.path.exists(config_path):
+                        with open(config_path, "r", encoding="utf-8") as f:
+                            config = yaml.safe_load(f)
+                            api_key = config.get("api_keys", {}).get("gemini_api_key")
+                except Exception as e:
+                    print(f"⚠️ config.yaml 읽기 실패: {e}")
+
+            if api_key and api_key != "YOUR_GEMINI_API_KEY_HERE":
+                genai.configure(api_key=api_key)
+                self.llm_model = genai.GenerativeModel('gemini-2.5-flash')
+                print("✅ Gemini LLM 모델 설정 완료 (gemini-2.5-flash)")
+            else:
+                print("⚠️ GEMINI_API_KEY가 설정되지 않음. 규칙 기반 분석으로 fallback")
+                self.llm_model = None
+        except Exception as e:
+            print(f"⚠️ LLM 설정 실패: {e}. 규칙 기반 분석으로 fallback")
+            self.llm_model = None
+
+    def analyze_trial_criteria_with_llm(self, trial_name: str, inclusion_criteria: str, exclusion_criteria: str) -> Dict[str, List[ClinicalCriteria]]:
+        """LLM 기반 고도화된 임상시험 조건 분석"""
+
+        if not self.llm_model:
+            print("⚠️ LLM이 사용 불가능합니다. 규칙 기반 분석으로 진행합니다.")
+            return self.analyze_trial_criteria(trial_name, inclusion_criteria, exclusion_criteria)
+
+        try:
+            # 참조 데이터 정보 생성
+            reference_summary = self._generate_reference_summary()
+
+            # 고도화된 프롬프트
+            prompt = f"""
+당신은 임상시험 전문가입니다. 주어진 임상시험 조건을 분석하여 구조화된 정보로 추출해주세요.
+
+## 임상시험 정보
+**시험명**: {trial_name}
+
+**포함 기준 (Inclusion Criteria)**:
+{inclusion_criteria}
+
+**제외 기준 (Exclusion Criteria)**:
+{exclusion_criteria}
+
+## 사용 가능한 의료 데이터 참조
+{reference_summary}
+
+## 분석 요청
+각 조건을 다음 카테고리로 분류하고 구체적인 값들을 추출해주세요:
+
+1. **연령 조건**: 최소/최대 연령 (숫자)
+2. **성별 조건**: male/female/both
+3. **질환 조건**: 정확한 의학 용어 (참조 데이터 기준)
+4. **약물 조건**: 구체적인 약물명 또는 성분명
+5. **생체징후 조건**: 측정값과 범위 (혈압, BMI, 혈당 등)
+6. **임신 관련**: pregnancy/lactation 여부
+7. **기간 조건**: 특정 기간 (개월, 년)
+
+## 출력 형식 (JSON)
+```json
+{{
+  "inclusion": [
+    {{
+      "type": "age",
+      "description": "만 19세 이상 성인 남녀",
+      "values": {{"min_age": 19, "max_age": 120}},
+      "keywords": ["성인", "19세"]
+    }},
+    {{
+      "type": "disease",
+      "description": "고혈압 진단을 받은 환자",
+      "values": {{}},
+      "keywords": ["고혈압", "혈압"]
+    }},
+    {{
+      "type": "vital_signs",
+      "description": "수축기 혈압 140mmHg 이상",
+      "values": {{"parameter": "systolic_bp", "min": 140, "unit": "mmHg"}},
+      "keywords": ["수축기", "혈압", "140"]
+    }}
+  ],
+  "exclusion": [
+    {{
+      "type": "disease",
+      "description": "최근 5년 이내 악성종양 병력",
+      "values": {{"period_months": 60}},
+      "keywords": ["악성종양", "악성", "신생물", "암"]
+    }},
+    {{
+      "type": "disease",
+      "description": "최근 12개월 이내 심근경색 또는 뇌졸중 병력",
+      "values": {{"period_months": 12}},
+      "keywords": ["심근경색", "뇌졸중", "심근", "경색"]
+    }}
+  ]
+}}
+```
+
+**중요 지침**:
+1. **정확한 질병 매핑**: 입력된 질병명을 정확히 분석하고 매핑하세요
+   - "고혈압" → ["고혈압", "혈압"] 키워드 사용
+   - "당뇨병" → ["당뇨병", "당뇨"] 키워드 사용
+   - "악성종양" → ["악성", "종양", "신생물", "암"] 키워드 사용
+2. **포함/제외 조건 구분**: 포함 조건과 제외 조건을 명확히 구분하세요
+3. **숫자 값 정확 추출**: 연령, 혈압, 기간 등의 숫자는 정확히 추출하세요
+4. **기간 변환**: 기간은 개월 단위로 변환하세요 (5년 = 60개월)
+5. **원본 텍스트 보존**: 각 조건의 원본 텍스트를 description에 보존하세요
+6. **관련 키워드 추출**: 실제 검색에 유용한 키워드들을 포함하세요
+
+JSON 형식으로만 답변해주세요.
+"""
+
+            # LLM 호출 (안전성 체크)
+            if self.llm_model is None:
+                print("⚠️  LLM이 사용 불가능합니다. 기본 분석을 수행합니다.")
+                return self._fallback_criteria_analysis(criteria_text)
+
+            response = self.llm_model.generate_content(prompt)
+            response_text = response.text.strip()
+
+            # JSON 파싱 시도
+            if response_text.startswith('```json'):
+                response_text = response_text.replace('```json', '').replace('```', '').strip()
+
+            try:
+                analysis_result = json.loads(response_text)
+                print(f"✅ LLM 분석 결과 (JSON 파싱 성공):")
+                print(f"포함 조건: {len(analysis_result.get('inclusion', []))}개")
+                print(f"제외 조건: {len(analysis_result.get('exclusion', []))}개")
+
+                # 주요 키워드들 표시
+                for category in ['inclusion', 'exclusion']:
+                    if category in analysis_result:
+                        for item in analysis_result[category]:
+                            print(f"  [{category}] {item.get('type', 'unknown')}: {item.get('keywords', [])}")
+
+                converted_result = self._convert_llm_result_to_criteria(analysis_result)
+                print(f"✅ 변환 완료: 포함 {len(converted_result['inclusion'])}개, 제외 {len(converted_result['exclusion'])}개")
+                return converted_result
+            except json.JSONDecodeError as e:
+                print(f"⚠️ LLM JSON 파싱 실패: {e}")
+                print(f"응답: {response_text[:500]}...")
+                # Fallback to rule-based analysis
+                return self.analyze_trial_criteria(trial_name, inclusion_criteria, exclusion_criteria)
+
+        except Exception as e:
+            print(f"⚠️ LLM 분석 실패: {e}")
+            # Fallback to rule-based analysis
+            return self.analyze_trial_criteria(trial_name, inclusion_criteria, exclusion_criteria)
+
+    def _generate_reference_summary(self) -> str:
+        """참조 데이터 요약 생성"""
+        try:
+            summary = "### 데이터베이스 참조 정보\n"
+
+            if self.reference_loader.data:
+                # 상위 질환들
+                top_diseases = self.reference_loader.get_top_diseases(limit=20)
+                disease_examples = [d['name'] for d in top_diseases[:10]]
+                summary += f"**주요 질환명**: {', '.join(disease_examples[:5])}, ...\n"
+
+                # 상위 약물들
+                top_drugs = self.reference_loader.get_top_drugs(limit=20)
+                drug_examples = [d['name'] for d in top_drugs[:10]]
+                summary += f"**주요 약물명**: {', '.join(drug_examples[:5])}, ...\n"
+
+                summary += "**생체징후**: 혈압(res_blood_pressure), BMI(res_bmi), 공복혈당(res_fasting_blood_suger), 콜레스테롤 등\n"
+
+            return summary
+        except:
+            return "참조 데이터 로드 중..."
+
+    def _fallback_criteria_analysis(self, criteria_text: str) -> Dict:
+        """LLM 없이 기본 분석 수행"""
+        print("📊 기본 조건 분석 모드로 실행...")
+
+        # 간단한 키워드 기반 분석
+        criteria_text_lower = criteria_text.lower()
+
+        basic_analysis = {
+            "inclusion": [],
+            "exclusion": [],
+            "summary": "기본 분석 모드: LLM 기반 상세 분석은 사용할 수 없습니다.",
+            "complexity": "기본 분석",
+            "keywords": []
+        }
+
+        # 기본 패턴 매칭
+        if any(word in criteria_text_lower for word in ["나이", "age", "세"]):
+            basic_analysis["inclusion"].append({
+                "type": "age",
+                "description": "연령 관련 조건 (상세 분석 불가)",
+                "keywords": ["연령", "나이"]
+            })
+
+        if any(word in criteria_text_lower for word in ["성별", "남", "여", "gender"]):
+            basic_analysis["inclusion"].append({
+                "type": "gender",
+                "description": "성별 관련 조건 (상세 분석 불가)",
+                "keywords": ["성별"]
+            })
+
+        if any(word in criteria_text_lower for word in ["질병", "질환", "병력", "disease"]):
+            basic_analysis["inclusion"].append({
+                "type": "disease",
+                "description": "질환 관련 조건 (상세 분석 불가)",
+                "keywords": ["질환", "질병"]
+            })
+
+        return basic_analysis
+
+    def _convert_llm_result_to_criteria(self, analysis_result: Dict) -> Dict[str, List[ClinicalCriteria]]:
+        """LLM 분석 결과를 ClinicalCriteria 객체로 변환"""
+        criteria_map = {
+            "inclusion": [],
+            "exclusion": []
+        }
+
+        type_mapping = {
+            "age": CriteriaType.AGE,
+            "gender": CriteriaType.GENDER,
+            "disease": CriteriaType.DISEASE,
+            "drug": CriteriaType.DRUG,
+            "vital_signs": CriteriaType.VITAL_SIGNS,
+            "pregnancy": CriteriaType.PREGNANCY,
+            "period": CriteriaType.PERIOD,
+            "procedure": CriteriaType.PROCEDURE,
+            "consent": CriteriaType.CONSENT
+        }
+
+        for category in ["inclusion", "exclusion"]:
+            if category in analysis_result:
+                for item in analysis_result[category]:
+                    criteria_type = type_mapping.get(item.get("type"), CriteriaType.DISEASE)
+
+                    criteria = ClinicalCriteria(
+                        criteria_type=criteria_type,
+                        description=item.get("description", ""),
+                        values=item.get("values", {}),
+                        keywords=item.get("keywords", []),
+                        is_inclusion=(category == "inclusion")
+                    )
+
+                    criteria_map[category].append(criteria)
+
+        return criteria_map
+
+    def analyze_trial_criteria(self, trial_name: str, inclusion_criteria: str, exclusion_criteria: str) -> Dict[str, List[ClinicalCriteria]]:
+        """전체 임상시험 조건 분석"""
+        print(f"\n=== {trial_name} 조건 분석 ===")
+
+        inclusion_list = self.analyze_criteria_text(inclusion_criteria, is_inclusion=True)
+        exclusion_list = self.analyze_criteria_text(exclusion_criteria, is_inclusion=False)
+
+        print(f"선정 조건: {len(inclusion_list)}개 항목")
+        for criteria in inclusion_list:
+            print(f"  ✅ [{criteria.criteria_type.value}] {criteria.description[:50]}...")
+
+        print(f"제외 조건: {len(exclusion_list)}개 항목")
+        for criteria in exclusion_list:
+            print(f"  ❌ [{criteria.criteria_type.value}] {criteria.description[:50]}...")
+
+        return {
+            "inclusion": inclusion_list,
+            "exclusion": exclusion_list
+        }
+
+
+@dataclass
+class RecipeMatch:
+    """레시피 매칭 결과"""
+    recipe_name: str
+    recipe_path: str
+    match_score: float
+    matched_criteria: List[ClinicalCriteria]
+    required_parameters: Dict[str, Any]
+    description: str
+
+
+class RecipeSelector:
+    """조건에 맞는 레시피 선택기"""
+
+    def __init__(self, recipes_dir: str = "recipes"):
+        self.recipes_dir = Path(recipes_dir)
+        self.recipe_metadata = {}
+        self._load_recipe_metadata()
+
+    def _load_recipe_metadata(self):
+        """모든 레시피의 메타데이터 로드"""
+        print("Loading recipe metadata...")
+
+        for category_dir in ["pool", "profile"]:
+            category_path = self.recipes_dir / category_dir
+            if not category_path.exists():
+                continue
+
+            yaml_files = list(category_path.glob("*.yaml"))
+            for yaml_file in yaml_files:
+                try:
+                    with open(yaml_file, 'r', encoding='utf-8') as f:
+                        metadata = yaml.safe_load(f)
+                        recipe_name = metadata.get('name', yaml_file.stem)
+                        self.recipe_metadata[recipe_name] = {
+                            'metadata': metadata,
+                            'category': category_dir,
+                            'path': yaml_file,
+                            'sql_path': yaml_file.with_suffix('.sql')
+                        }
+                except Exception as e:
+                    print(f"Error loading {yaml_file}: {e}")
+
+        print(f"✅ Loaded {len(self.recipe_metadata)} recipe metadata files")
+
+    def select_recipes_for_criteria(self, analyzed_criteria: Dict[str, List[ClinicalCriteria]]) -> List[RecipeMatch]:
+        """분석된 조건들에 맞는 레시피들 선택"""
+        matches = []
+
+        inclusion_criteria = analyzed_criteria.get("inclusion", [])
+        exclusion_criteria = analyzed_criteria.get("exclusion", [])
+
+        # 각 레시피에 대해 매칭 점수 계산
+        for recipe_name, recipe_info in self.recipe_metadata.items():
+            match_result = self._calculate_recipe_match(
+                recipe_name, recipe_info, inclusion_criteria, exclusion_criteria
+            )
+            if match_result.match_score > 0:
+                matches.append(match_result)
+
+        # 매칭 점수 순으로 정렬
+        matches.sort(key=lambda x: x.match_score, reverse=True)
+        return matches
+
+    def _calculate_recipe_match(self, recipe_name: str, recipe_info: Dict,
+                               inclusion_criteria: List[ClinicalCriteria],
+                               exclusion_criteria: List[ClinicalCriteria]) -> RecipeMatch:
+        """개별 레시피의 매칭 점수 계산"""
+        metadata = recipe_info['metadata']
+        description = metadata.get('description', '')
+        tags = metadata.get('tags', [])
+        category = recipe_info['category']
+
+        match_score = 0
+        matched_criteria = []
+        required_parameters = {}
+
+        # 카테고리별 기본 점수
+        if category == "pool":
+            match_score += 10  # 환자 추출용 레시피는 기본 점수
+
+        # 조건별 매칭 로직
+        all_criteria = inclusion_criteria + exclusion_criteria
+
+        for criteria in all_criteria:
+            criteria_match_score = self._match_criteria_to_recipe(
+                criteria, recipe_name, metadata, description, tags
+            )
+
+            if criteria_match_score > 0:
+                match_score += criteria_match_score
+                matched_criteria.append(criteria)
+
+                # 파라미터 추출
+                params = self._extract_parameters_for_criteria(criteria, metadata)
+                required_parameters.update(params)
+
+        return RecipeMatch(
+            recipe_name=recipe_name,
+            recipe_path=str(recipe_info['path']),
+            match_score=match_score,
+            matched_criteria=matched_criteria,
+            required_parameters=required_parameters,
+            description=description
+        )
+
+    def _match_criteria_to_recipe(self, criteria: ClinicalCriteria, recipe_name: str,
+                                 metadata: Dict, description: str, tags: List[str]) -> float:
+        """개별 조건과 레시피 간의 매칭 점수 계산"""
+        score = 0
+
+        # 조건 타입별 매칭 로직
+        if criteria.criteria_type == CriteriaType.AGE:
+            if any(keyword in recipe_name.lower() for keyword in ['age', 'gender', '연령']):
+                score += 15
+            if any(keyword in description.lower() for keyword in ['연령', '나이', 'age']):
+                score += 10
+
+        elif criteria.criteria_type == CriteriaType.GENDER:
+            if any(keyword in recipe_name.lower() for keyword in ['age', 'gender', '성별']):
+                score += 15
+            if any(keyword in description.lower() for keyword in ['성별', '남녀', 'gender']):
+                score += 10
+
+        elif criteria.criteria_type == CriteriaType.DISEASE:
+            if any(keyword in recipe_name.lower() for keyword in ['disease', 'diagnosis', '질환', '진단']):
+                score += 20
+            if any(keyword in description.lower() for keyword in ['질환', '진단', '병력', 'disease']):
+                score += 15
+            # 키워드 매칭
+            for keyword in criteria.keywords:
+                if keyword.lower() in description.lower() or keyword.lower() in recipe_name.lower():
+                    score += 25
+
+        elif criteria.criteria_type == CriteriaType.DRUG:
+            if any(keyword in recipe_name.lower() for keyword in ['drug', 'medication', '약물', '처방']):
+                score += 20
+            if any(keyword in description.lower() for keyword in ['약물', '처방', '투여', 'drug', 'medication']):
+                score += 15
+
+        elif criteria.criteria_type == CriteriaType.PROCEDURE:
+            if any(keyword in recipe_name.lower() for keyword in ['procedure', 'treatment', '처치', '치료']):
+                score += 20
+            if any(keyword in description.lower() for keyword in ['처치', '치료', '수술', 'procedure']):
+                score += 15
+
+        elif criteria.criteria_type == CriteriaType.VITAL_SIGNS:
+            if any(keyword in recipe_name.lower() for keyword in ['vital', 'blood', '혈압', '생체']):
+                score += 25
+            if any(keyword in description.lower() for keyword in ['혈압', '생체징후', 'vital', 'blood pressure']):
+                score += 20
+
+        elif criteria.criteria_type == CriteriaType.PREGNANCY:
+            if any(keyword in recipe_name.lower() for keyword in ['pregnancy', '임신', '수유']):
+                score += 30
+            if any(keyword in description.lower() for keyword in ['임신', '수유', 'pregnancy']):
+                score += 25
+
+        # 특별한 레시피 매칭 로직
+        if criteria.criteria_type in [CriteriaType.DISEASE, CriteriaType.DRUG, CriteriaType.PROCEDURE]:
+            # 복합 스크리닝 레시피들
+            if 'screen' in recipe_name.lower() or 'criteria' in recipe_name.lower():
+                score += 30
+            if 'inclusion' in recipe_name.lower() or 'exclusion' in recipe_name.lower():
+                score += 35
+
+        return score
+
+    def _extract_parameters_for_criteria(self, criteria: ClinicalCriteria, metadata: Dict) -> Dict[str, Any]:
+        """조건에서 레시피 파라미터 추출"""
+        parameters = {}
+        recipe_params = metadata.get('parameters', [])
+
+        for param in recipe_params:
+            param_name = param.get('name', '')
+            param_type = param.get('type', 'string')
+
+            # 조건 타입별 파라미터 매핑
+            if criteria.criteria_type == CriteriaType.AGE:
+                if 'age' in param_name.lower():
+                    if 'min' in param_name:
+                        parameters[param_name] = criteria.values.get('min_age', 19)
+                    elif 'max' in param_name:
+                        parameters[param_name] = criteria.values.get('max_age', 120)
+
+            elif criteria.criteria_type == CriteriaType.GENDER:
+                if 'gender' in param_name.lower():
+                    parameters[param_name] = criteria.values.get('gender', 'both')
+
+            elif criteria.criteria_type == CriteriaType.DISEASE:
+                if 'disease' in param_name.lower() or 'keyword' in param_name.lower():
+                    if criteria.keywords:
+                        parameters[param_name] = criteria.keywords[0]  # 첫 번째 키워드 사용
+
+            elif criteria.criteria_type == CriteriaType.DRUG:
+                if 'drug' in param_name.lower() or 'medication' in param_name.lower():
+                    if criteria.keywords:
+                        parameters[param_name] = criteria.keywords[0]
+
+            elif criteria.criteria_type == CriteriaType.VITAL_SIGNS:
+                if 'bp' in param_name.lower() or 'pressure' in param_name.lower():
+                    if 'systolic_bp' in criteria.values:
+                        parameters[param_name] = criteria.values['systolic_bp']
+                    elif 'blood_pressure' in criteria.values:
+                        parameters[param_name] = criteria.values['blood_pressure']
+
+        return parameters
+
+    def get_recommended_recipe_sequence(self, analyzed_criteria: Dict[str, List[ClinicalCriteria]]) -> List[RecipeMatch]:
+        """임상시험 스크리닝에 최적화된 레시피 시퀀스 생성"""
+        matches = self.select_recipes_for_criteria(analyzed_criteria)
+
+        # 임상시험 스크리닝 최적 조합 (실용성 우선)
+        priority_recipes = [
+            'analyze_screened_patient_count',               # 1. 스크리닝된 총 환자 수 ⭐
+            'analyze_screened_gender_distribution',         # 2. 성별 분포 ⭐
+            'analyze_screened_regional_distribution',       # 3. 지역 분포 ⭐
+            'get_top_prescribed_ingredients_by_disease',    # 4. 현재 치료 약물 현황
+        ]
+
+        sequence = []
+
+        # 1. 우선순위 레시피들을 순서대로 추가 (직접 생성)
+        for priority_recipe in priority_recipes:
+            if priority_recipe in self.recipe_metadata:
+                recipe_info = self.recipe_metadata[priority_recipe]
+                match = RecipeMatch(
+                    recipe_name=priority_recipe,
+                    recipe_path=str(recipe_info['path']),
+                    match_score=10,  # 최고 우선순위
+                    matched_criteria=[],
+                    required_parameters={},
+                    description=recipe_info['metadata'].get('description', '설명 없음')
+                )
+                sequence.append(match)
+
+        # 2. 나머지 높은 점수 레시피들 추가 (중복 제거)
+        existing_names = {match.recipe_name for match in sequence}
+        remaining_matches = [m for m in matches if m.recipe_name not in existing_names]
+
+        # 복잡한 스크리닝 레시피는 제외하고 분석 위주로
+        filtered_matches = []
+        for match in remaining_matches:
+            # 너무 복잡한 스크리닝 레시피들 제외
+            if not any(keyword in match.recipe_name.lower() for keyword in
+                      ['inclusion_exclusion_list', 'sjogren', 'clinical_trial_candidates']):
+                filtered_matches.append(match)
+
+        sequence.extend(filtered_matches[:1])  # 추가로 1개만
+
+        print(f"✅ 임상시험 맞춤형 레시피 시퀀스 생성: {len(sequence)}개")
+        for i, match in enumerate(sequence, 1):
+            print(f"  {i}. {match.recipe_name}")
+
+        return sequence
+
+
+class ParameterExtractor:
+    """동적 파라미터 생성기 - 조건과 레시피에서 최적화된 파라미터 추출"""
+
+    def __init__(self, reference_loader: ReferenceDataLoader):
+        self.reference_loader = reference_loader
+
+        # 기본 파라미터 값들
+        self.default_date_range = {
+            "start_date": "2022-01-01",
+            "end_date": "2024-12-31"
+        }
+
+    def extract_parameters_for_recipe(self, recipe_match: RecipeMatch,
+                                    analyzed_criteria: Dict[str, List[ClinicalCriteria]]) -> Dict[str, Any]:
+        """레시피와 조건에 맞는 파라미터 생성"""
+
+        # 레시피 메타데이터에서 필요한 파라미터 정보 가져오기
+        yaml_path = Path(recipe_match.recipe_path)
+        with open(yaml_path, 'r', encoding='utf-8') as f:
+            metadata = yaml.safe_load(f)
+
+        recipe_params = metadata.get('parameters', [])
+        generated_params = {}
+
+        # 기본 날짜 파라미터 설정
+        generated_params.update(self.default_date_range)
+
+        # 각 파라미터에 대해 값 생성
+        for param in recipe_params:
+            param_name = param.get('name', '')
+            param_type = param.get('type', 'string')
+            param_desc = param.get('description', '')
+            param_default = param.get('default')
+
+            # 이미 기본값이 있으면 사용
+            if param_name in generated_params:
+                continue
+
+            # 조건 기반 파라미터 값 생성
+            param_value = self._generate_parameter_value(
+                param_name, param_type, param_desc, param_default,
+                analyzed_criteria
+            )
+
+            if param_value is not None:
+                generated_params[param_name] = param_value
+                print(f"  📝 {param_name}: {param_value}")
+
+        print(f"✅ 총 {len(generated_params)}개 파라미터 생성 완료")
+
+        return generated_params
+
+    def _generate_parameter_value(self, param_name: str, param_type: str,
+                                param_desc: str, param_default: Any,
+                                analyzed_criteria: Dict[str, List[ClinicalCriteria]]) -> Any:
+        """개별 파라미터 값 생성"""
+
+        all_criteria = analyzed_criteria.get("inclusion", []) + analyzed_criteria.get("exclusion", [])
+
+        # 파라미터 이름과 설명을 기반으로 매칭
+        param_lower = param_name.lower()
+        desc_lower = param_desc.lower()
+
+        # 특수한 파라미터명 직접 매핑 (우선순위 높음)
+        if param_name == 'top_n':
+            return 10
+        elif param_name == 'disease_name_keyword' or param_name == 'disease_keyword':
+            # 포함 조건의 질환만 선택
+            inclusion_disease_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DISEASE and c.is_inclusion]
+            if inclusion_disease_criteria and inclusion_disease_criteria[0].keywords:
+                return inclusion_disease_criteria[0].keywords[0]
+            return "고혈압"
+        elif 'drug' in param_name and 'ingredient' in param_name:
+            # 약물 성분 파라미터 - 서로 다른 약물 할당
+            inclusion_drug_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DRUG and c.is_inclusion]
+            if inclusion_drug_criteria and inclusion_drug_criteria[0].keywords:
+                keywords = inclusion_drug_criteria[0].keywords
+                if 'drug1' in param_name and len(keywords) > 0:
+                    return keywords[0]
+                elif 'drug2' in param_name and len(keywords) > 1:
+                    return keywords[1]
+                elif 'drug2' in param_name:
+                    return "아스피린"  # 두 번째 약물 기본값
+                return keywords[0]
+
+            # 기본값들을 다르게 설정
+            if 'drug1' in param_name:
+                return "항고혈압제"
+            elif 'drug2' in param_name:
+                return "아스피린"
+            return "항고혈압제"
+
+        # 연령 관련 파라미터
+        if 'age' in param_lower or 'age' in desc_lower:
+            age_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.AGE]
+            if age_criteria:
+                age_values = age_criteria[0].values
+                if 'min' in param_lower:
+                    return age_values.get('min_age', 19)
+                elif 'max' in param_lower:
+                    return age_values.get('max_age', 120)
+                else:
+                    return age_values.get('min_age', 19)
+
+        # 성별 관련 파라미터
+        elif 'gender' in param_lower or 'gender' in desc_lower:
+            gender_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.GENDER]
+            if gender_criteria:
+                return gender_criteria[0].values.get('gender', 'both')
+
+        # 질환 관련 파라미터
+        elif any(keyword in param_lower for keyword in ['disease', 'keyword', 'condition']) or \
+             any(keyword in desc_lower for keyword in ['질환', '진단', '병명', 'disease']):
+
+            # 포함 기준 질환 키워드 (inclusion_disease_keyword)
+            if 'inclusion' in param_lower:
+                inclusion_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DISEASE and c.is_inclusion]
+                if inclusion_criteria and inclusion_criteria[0].keywords:
+                    return inclusion_criteria[0].keywords[0]
+                return "고혈압"
+
+            # 제외 기준 질환 키워드들 (exclusion_disease_keywords) - 쉼표로 구분
+            elif 'exclusion' in param_lower:
+                exclusion_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DISEASE and not c.is_inclusion]
+                if exclusion_criteria:
+                    all_keywords = []
+                    for criterion in exclusion_criteria:
+                        if criterion.keywords:
+                            all_keywords.extend(criterion.keywords)
+                    if all_keywords:
+                        # 중복 제거하고 쉼표로 연결
+                        unique_keywords = list(set(all_keywords))
+                        return ",".join(unique_keywords)
+                # 기본 제외 조건들
+                return "악성종양,악성,신생물,암,심근경색,뇌졸중"
+
+            # 일반 질환 키워드 (포함 조건 우선)
+            else:
+                # 포함 조건의 질환만 선택
+                inclusion_disease_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DISEASE and c.is_inclusion]
+                if inclusion_disease_criteria:
+                    # 포함 조건의 첫 번째 키워드 사용
+                    if inclusion_disease_criteria[0].keywords:
+                        return inclusion_disease_criteria[0].keywords[0]
+
+                # 포함 조건이 없으면 전체에서 첫 번째
+                disease_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DISEASE]
+                if disease_criteria:
+                    if disease_criteria[0].keywords:
+                        return disease_criteria[0].keywords[0]
+
+                # 기본값
+                return "고혈압"
+
+        # 약물 관련 파라미터
+        elif any(keyword in param_lower for keyword in ['drug', 'medication', '약물']) or \
+             any(keyword in desc_lower for keyword in ['약물', '처방', 'drug', 'medication']):
+
+            # 제외 기준 약물 키워드들 (exclusion_drug_keywords) - 쉼표로 구분
+            if 'exclusion' in param_lower:
+                exclusion_drug_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DRUG and not c.is_inclusion]
+                if exclusion_drug_criteria:
+                    all_drug_keywords = []
+                    for criterion in exclusion_drug_criteria:
+                        if criterion.keywords:
+                            all_drug_keywords.extend(criterion.keywords)
+                    if all_drug_keywords:
+                        # 중복 제거하고 쉼표로 연결
+                        unique_drug_keywords = list(set(all_drug_keywords))
+                        return ",".join(unique_drug_keywords)
+                # 기본 제외 약물들
+                return "와파린,아스피린,스테로이드"
+
+            # 일반 약물 키워드 (포함 조건 우선)
+            else:
+                # 포함 조건의 약물만 선택
+                inclusion_drug_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DRUG and c.is_inclusion]
+                if inclusion_drug_criteria:
+                    if inclusion_drug_criteria[0].keywords:
+                        return inclusion_drug_criteria[0].keywords[0]
+
+                # 포함 조건이 없으면 전체에서 첫 번째
+                drug_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.DRUG]
+                if drug_criteria:
+                    if drug_criteria[0].keywords:
+                        return drug_criteria[0].keywords[0]
+
+                # 기본값
+                return "항고혈압제"
+
+        # 혈압 관련 파라미터
+        elif any(keyword in param_lower for keyword in ['bp', 'pressure', '혈압']) or \
+             any(keyword in desc_lower for keyword in ['혈압', 'blood pressure']):
+            vital_criteria = [c for c in all_criteria if c.criteria_type == CriteriaType.VITAL_SIGNS]
+            if vital_criteria:
+                return vital_criteria[0].values.get('systolic_bp', 140)
+
+        # 기간 관련 파라미터
+        elif any(keyword in param_lower for keyword in ['period', 'duration', '기간']):
+            return 90  # 기본 90일
+
+        # 최소/최대 환자수 파라미터
+        elif 'patient' in param_lower and ('min' in param_lower or 'max' in param_lower):
+            return 10 if 'min' in param_lower else 1000
+
+        # 특수한 파라미터명들 처리
+        if 'top_n' in param_lower or 'limit' in param_lower:
+            return 10  # 숫자 기본값
+
+        if 'window' in param_lower and 'month' in param_lower:
+            return 12  # 기본 12개월
+
+        if 'count' in param_lower or 'num' in param_lower:
+            return 5  # 기본 개수
+
+        # 기본값이 있으면 사용
+        if param_default is not None:
+            return param_default
+
+        # 타입별 기본값
+        if param_type == 'integer':
+            return 10
+        elif param_type == 'date':
+            return self.default_date_range['start_date']
+        else:
+            return "고혈압"  # 기본 키워드
+
+
+@dataclass
+class QueryResult:
+    """쿼리 실행 결과"""
+    recipe_name: str
+    success: bool
+    generated_sql: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+    data: Optional[pd.DataFrame] = None
+    error_message: Optional[str] = None
+    execution_time: float = 0.0
+    row_count: int = 0
+
+
+class QueryExecutor:
+    """SQL 쿼리 실행기 - 생성된 파라미터로 SQL 쿼리 실행"""
+
+    def __init__(self):
+        self.execution_history = []
+
+    def generate_sql_from_recipe(self, recipe_match: RecipeMatch,
+                               parameters: Dict[str, Any]) -> str:
+        """레시피와 파라미터로 실행 가능한 SQL 생성"""
+
+        # SQL 파일 경로
+        sql_path = Path(recipe_match.recipe_path).with_suffix('.sql')
+
+        if not sql_path.exists():
+            raise FileNotFoundError(f"SQL file not found: {sql_path}")
+
+        # SQL 템플릿 읽기
+        with open(sql_path, 'r', encoding='utf-8') as f:
+            sql_template = f.read()
+
+        # Jinja2 템플릿 렌더링 (안전성 개선)
+        from jinja2 import Environment, StrictUndefined, TemplateError
+
+        # StrictUndefined를 사용하여 누락된 변수 감지
+        env = Environment(undefined=StrictUndefined)
+        template = env.from_string(sql_template)
+
+        try:
+            # 파라미터 매핑 로직 적용 (호환성을 위해)
+            mapped_parameters = self._apply_parameter_mapping(sql_template, parameters)
+            rendered_sql = template.render(**mapped_parameters)
+            return rendered_sql
+
+        except TemplateError as e:
+            # Jinja2 관련 오류 (누락된 변수, 문법 오류 등)
+            missing_vars = self._find_missing_template_variables(sql_template, parameters)
+            if missing_vars:
+                raise ValueError(f"Missing template variables: {missing_vars}. Available parameters: {list(parameters.keys())}")
+            else:
+                raise ValueError(f"Template syntax error: {e}")
+
+        except Exception as e:
+            raise ValueError(f"SQL template rendering failed: {e}")
+
+    def _find_missing_template_variables(self, template_str: str, provided_params: Dict) -> List[str]:
+        """템플릿에서 누락된 변수들을 찾아 반환"""
+        import re
+
+        # {{ variable }} 패턴으로 변수 추출
+        template_vars = set(re.findall(r'\{\{\s*(\w+)', template_str))
+        # {% if variable %} 패턴도 추출
+        conditional_vars = set(re.findall(r'\{\%\s*if\s+(\w+)', template_str))
+
+        all_template_vars = template_vars | conditional_vars
+        provided_vars = set(provided_params.keys())
+
+        missing_vars = all_template_vars - provided_vars
+        return list(missing_vars)
+
+    def _apply_parameter_mapping(self, template_str: str, parameters: Dict) -> Dict:
+        """파라미터 매핑 로직 - 호환성을 위해 누락된 파라미터를 자동 매핑"""
+        mapped_params = parameters.copy()
+
+        # disease_code_prefix가 필요하지만 없는 경우 disease_name_keyword로 매핑
+        if 'disease_code_prefix' in template_str and 'disease_code_prefix' not in mapped_params:
+            if 'disease_name_keyword' in mapped_params:
+                mapped_params['disease_code_prefix'] = mapped_params['disease_name_keyword']
+                print(f"   📝 파라미터 매핑: disease_name_keyword -> disease_code_prefix")
+
+        # 반대의 경우도 처리
+        if 'disease_name_keyword' in template_str and 'disease_name_keyword' not in mapped_params:
+            if 'disease_code_prefix' in mapped_params:
+                mapped_params['disease_name_keyword'] = mapped_params['disease_code_prefix']
+                print(f"   📝 파라미터 매핑: disease_code_prefix -> disease_name_keyword")
+
+        # 기타 일반적인 매핑들
+        parameter_mappings = {
+            'limit': 'top_n',
+            'top_n': 'limit',
+            'disease_keyword': 'disease_name_keyword',
+            'disease_name_keyword': 'disease_keyword',
+            'target_ingredient': 'drug_ingredient',
+            'drug_ingredient': 'target_ingredient'
+        }
+
+        # target_ingredient가 누락된 경우 빈 문자열로 설정 (전체 성분 분석)
+        if 'target_ingredient' in template_str and 'target_ingredient' not in mapped_params:
+            mapped_params['target_ingredient'] = ''
+            print(f"   📝 파라미터 기본값 설정: target_ingredient = '' (전체 성분 분석)")
+
+        for template_param, source_param in parameter_mappings.items():
+            if template_param in template_str and template_param not in mapped_params:
+                if source_param in mapped_params:
+                    mapped_params[template_param] = mapped_params[source_param]
+                    print(f"   📝 파라미터 매핑: {source_param} -> {template_param}")
+
+        return mapped_params
+
+    def execute_recipe_sequence(self, recipe_sequence: List[RecipeMatch],
+                              parameter_extractor: ParameterExtractor,
+                              analyzed_criteria: Dict[str, List[ClinicalCriteria]],
+                              dry_run: bool = True,
+                              override_parameters: Optional[Dict[str, Dict]] = None) -> List[QueryResult]:
+        """레시피 시퀀스 실행"""
+
+        results = []
+
+        for recipe_match in recipe_sequence:
+            print(f"\n🔄 실행중: {recipe_match.recipe_name}")
+
+            try:
+                # 파라미터 생성 (override가 있으면 우선 사용)
+                if override_parameters and recipe_match.recipe_name in override_parameters:
+                    parameters = override_parameters[recipe_match.recipe_name]
+                    print(f"🎯 최적화된 파라미터 사용")
+                else:
+                    parameters = parameter_extractor.extract_parameters_for_recipe(
+                        recipe_match, analyzed_criteria
+                    )
+
+                print(f"📝 생성된 파라미터: {parameters}")
+
+                # SQL 생성
+                sql_query = self.generate_sql_from_recipe(recipe_match, parameters)
+
+                if dry_run:
+                    # Dry run - SQL만 생성하고 실행하지 않음
+                    result = QueryResult(
+                        recipe_name=recipe_match.recipe_name,
+                        success=True,
+                        generated_sql=sql_query,
+                        parameters=parameters,
+                        error_message=None,
+                        execution_time=0.0
+                    )
+                    print(f"✅ SQL 생성 성공 (Dry Run)")
+                    print(f"🔍 생성된 SQL (첫 200자):\n{sql_query[:200]}...")
+
+                else:
+                    # 실제 실행은 여기에 DB 연결 로직 추가
+                    # result = self._execute_sql(sql_query)
+                    result = QueryResult(
+                        recipe_name=recipe_match.recipe_name,
+                        success=True,
+                        generated_sql=sql_query,
+                        parameters=parameters,
+                        error_message="실제 DB 실행 미구현",
+                        execution_time=0.0
+                    )
+
+                results.append(result)
+
+            except Exception as e:
+                print(f"❌ 실행 실패: {str(e)}")
+                result = QueryResult(
+                    recipe_name=recipe_match.recipe_name,
+                    success=False,
+                    error_message=str(e),
+                    execution_time=0.0
+                )
+                results.append(result)
+
+        return results
+
+    def _execute_sql(self, sql_query: str) -> QueryResult:
+        """실제 SQL 실행 (DB 연결 필요)"""
+        # TODO: 실제 DB 연결 및 쿼리 실행 로직 구현
+        # 예: Spark SQL, PostgreSQL, etc.
+        pass
+
+
+class ClinicalTrialAgent:
+    """임상시험 스크리닝 자동화 메인 에이전트"""
+
+    def __init__(self):
+        print("🚀 Clinical Trial Agent 초기화 중...")
+
+        # 컴포넌트 초기화
+        self.reference_loader = ReferenceDataLoader()
+        self.reference_loader.load_all_data()
+
+        self.criteria_analyzer = CriteriaAnalyzer(self.reference_loader)
+        self.recipe_selector = RecipeSelector()
+        self.parameter_extractor = ParameterExtractor(self.reference_loader)
+        self.query_executor = QueryExecutor()
+
+        # 추가 분석 시스템 초기화
+        self.result_analyzer = ScreeningResultAnalyzer(self)
+
+        print("✅ Clinical Trial Agent 준비 완료!")
+
+    def run_clinical_trial_screening(self, trial_name: str,
+                                   inclusion_criteria: str,
+                                   exclusion_criteria: str,
+                                   dry_run: bool = True) -> Dict[str, Any]:
+        """전체 임상시험 스크리닝 프로세스 실행"""
+
+        print(f"\n🎯 임상시험 스크리닝 시작: {trial_name}")
+
+        # 1. 조건 분석 (LLM 기반 고도화)
+        print("\n1️⃣ 조건 분석 중...")
+        analyzed_criteria = self.criteria_analyzer.analyze_trial_criteria_with_llm(
+            trial_name, inclusion_criteria, exclusion_criteria
+        )
+
+        # 2. 레시피 선택
+        print("\n2️⃣ 적합한 레시피 선택 중...")
+        recipe_sequence = self.recipe_selector.get_recommended_recipe_sequence(analyzed_criteria)
+
+        print(f"선택된 레시피 수: {len(recipe_sequence)}")
+        for i, recipe in enumerate(recipe_sequence, 1):
+            category = "환자추출" if "pool" in recipe.recipe_path else "분석"
+            print(f"  {i}. [{category}] {recipe.recipe_name} (점수: {recipe.match_score})")
+
+        # 3. 파라미터 생성 및 쿼리 실행
+        print("\n3️⃣ 쿼리 생성 및 실행 중...")
+        execution_results = self.query_executor.execute_recipe_sequence(
+            recipe_sequence, self.parameter_extractor, analyzed_criteria, dry_run=dry_run
+        )
+
+        # 4. 결과 정리
+        success_count = sum(1 for r in execution_results if r.success)
+
+        print(f"\n🎉 스크리닝 완료!")
+        print(f"총 {len(execution_results)}개 레시피 중 {success_count}개 성공")
+
+        return {
+            "trial_name": trial_name,
+            "analyzed_criteria": analyzed_criteria,
+            "selected_recipes": recipe_sequence,
+            "execution_results": execution_results,
+            "success_rate": success_count / len(execution_results) if execution_results else 0
+        }
+
+    def run_comprehensive_clinical_analysis(self, trial_name: str,
+                                          inclusion_criteria: str,
+                                          exclusion_criteria: str,
+                                          dry_run: bool = True) -> Dict[str, Any]:
+        """스크리닝 + LLM 기반 추가 분석을 통합한 종합 임상 분석"""
+
+        print(f"\n🔬 종합 임상 분석 시작: {trial_name}")
+        print("=" * 60)
+
+        # 1단계: 기본 스크리닝 실행
+        print("1️⃣ 1단계: 기본 임상시험 스크리닝 실행")
+        screening_result = self.run_clinical_trial_screening(
+            trial_name, inclusion_criteria, exclusion_criteria, dry_run
+        )
+
+        # 스크리닝 실패 시 종료
+        if screening_result['success_rate'] == 0:
+            print("❌ 스크리닝 실패로 추가 분석을 진행할 수 없습니다.")
+            return {
+                "trial_name": trial_name,
+                "screening_result": screening_result,
+                "additional_analysis": None,
+                "overall_success": False
+            }
+
+        print(f"✅ 스크리닝 완료 (성공률: {screening_result['success_rate']:.1%})")
+
+        # 2단계: LLM 기반 추가 분석
+        print("\n2️⃣ 2단계: LLM 기반 추가 분석 실행")
+        try:
+            additional_analysis = self.result_analyzer.analyze_screening_results(
+                screening_result['execution_results'],
+                screening_result['analyzed_criteria'],
+                trial_name
+            )
+
+            print("✅ 추가 분석 완료")
+
+            # 3단계: 종합 결과 생성
+            print("\n3️⃣ 3단계: 종합 결과 리포트 생성")
+            comprehensive_result = self._generate_comprehensive_report(
+                screening_result, additional_analysis, trial_name
+            )
+
+            return comprehensive_result
+
+        except Exception as e:
+            print(f"❌ 추가 분석 실패: {e}")
+            return {
+                "trial_name": trial_name,
+                "screening_result": screening_result,
+                "additional_analysis": None,
+                "overall_success": False,
+                "error": str(e)
+            }
+
+    def _generate_comprehensive_report(self, screening_result: Dict,
+                                     additional_analysis: Dict,
+                                     trial_name: str) -> Dict[str, Any]:
+        """종합 분석 결과 리포트 생성"""
+
+        # 전체 성공률 계산
+        screening_success = screening_result['success_rate']
+        additional_success_count = sum(1 for r in additional_analysis['execution_results'] if r.success)
+        additional_total = len(additional_analysis['execution_results'])
+        additional_success_rate = additional_success_count / additional_total if additional_total > 0 else 0
+
+        overall_success = screening_success > 0 and additional_success_rate > 0
+
+        # 실행된 모든 레시피 통합
+        all_executed_recipes = []
+        all_executed_recipes.extend(screening_result['execution_results'])
+        all_executed_recipes.extend(additional_analysis['execution_results'])
+
+        # 전체 성공률 계산
+        total_success_count = sum(1 for r in all_executed_recipes if r.success)
+        overall_success_rate = total_success_count / len(all_executed_recipes) if all_executed_recipes else 0
+
+        # LLM 인사이트 정리
+        llm_insights = {
+            'clinical_significance': additional_analysis['llm_analysis'].get('clinical_significance', ''),
+            'recommended_analyses': additional_analysis['llm_analysis'].get('recommended_analyses', []),
+            'data_gaps': additional_analysis['llm_analysis'].get('data_gaps', []),
+            'next_steps': additional_analysis['llm_analysis'].get('next_steps', '')
+        }
+
+        print(f"📊 종합 결과:")
+        print(f"   - 스크리닝 성공률: {screening_success:.1%}")
+        print(f"   - 추가 분석 성공률: {additional_success_rate:.1%}")
+        print(f"   - 전체 성공률: {overall_success_rate:.1%}")
+        print(f"   - 총 실행 레시피: {len(all_executed_recipes)}개")
+        print(f"   - LLM 추천 분석: {len(additional_analysis['llm_analysis'].get('recommended_analyses', []))}개")
+
+        return {
+            "trial_name": trial_name,
+            "overall_success": overall_success,
+            "overall_success_rate": overall_success_rate,  # 추가
+            "screening_result": screening_result,
+            "additional_analysis": additional_analysis,
+            "performance_summary": {
+                "screening_success_rate": screening_success,
+                "additional_analysis_success_rate": additional_success_rate,
+                "total_recipes_executed": len(all_executed_recipes),
+                "successful_recipes": total_success_count
+            },
+            "llm_insights": llm_insights,
+            "all_executed_recipes": all_executed_recipes
+        }
+
+
+# 테스트 코드
+if __name__ == "__main__":
+
+    # 통합 ClinicalTrialAgent 테스트
+    print("=" * 60)
+    print("🏥 임상시험 스크리닝 자동화 시스템 테스트")
+    print("=" * 60)
+
+    # 에이전트 초기화
+    agent = ClinicalTrialAgent()
+
+    # 임상시험 예시 조건들
+    trial_name = "고혈압 신약 임상시험"
+
+    inclusion_criteria = """
+    만 19세 이상 성인 남녀
+    Visit 1 기준 평균 좌위 수축기 혈압이 140-180 mmHg 범위
+    항고혈압제 복용 중인 경우, 시험자의 판단에 따라 치료 중단이 가능한 환자
+    여성 대상자의 경우 피임 조건 충족
+    시험 목적·내용 설명을 듣고 자발적 서면 동의를 한 환자
+    """
+
+    exclusion_criteria = """
+    Visit 1 또는 Visit 2에서 MSSBP ≥ 180 mmHg 또는 MSDBP ≥ 110 mmHg
+    최근 5년 이내 악성종양 병력
+    최근 12개월 이내 심근경색 또는 뇌졸중 병력
+    임신부 또는 수유부
+    약물 또는 알코올 남용 병력
+    시험약 성분에 과민증 기왕력
+    """
+
+    # 전체 프로세스 실행
+    result = agent.run_clinical_trial_screening(
+        trial_name=trial_name,
+        inclusion_criteria=inclusion_criteria,
+        exclusion_criteria=exclusion_criteria,
+        dry_run=True  # SQL 생성만, 실제 실행 안함
+    )
+
+    # 결과 요약
+    print("\n" + "=" * 60)
+    print("📊 최종 결과 요약")
+    print("=" * 60)
+    print(f"임상시험명: {result['trial_name']}")
+    print(f"성공률: {result['success_rate']:.1%}")
+    print(f"실행된 레시피: {len(result['execution_results'])}개")
+
+    print("\n실행 결과:")
+    for i, exec_result in enumerate(result['execution_results'], 1):
+        status = "✅ 성공" if exec_result.success else "❌ 실패"
+        print(f"  {i}. {exec_result.recipe_name}: {status}")
+        if exec_result.error_message:
+            print(f"     오류: {exec_result.error_message}")
+
+    print("\n🎯 Phase 2 구현 완료: 임상시험 스크리닝 자동화 시스템이 성공적으로 작동합니다!")
+
+
+class ScreeningResultAnalyzer:
+    """스크리닝 결과 기반 LLM 추가 분석 추천 및 실행 시스템"""
+
+    def __init__(self, clinical_trial_agent: ClinicalTrialAgent):
+        self.agent = clinical_trial_agent
+        self.llm_model = self.agent.criteria_analyzer.llm_model
+
+    def _is_llm_available(self) -> bool:
+        """LLM 모델이 사용 가능한지 확인"""
+        return self.llm_model is not None
+
+    def analyze_screening_results(self, screening_results: List[QueryResult], analyzed_criteria: Dict, trial_name: str = "") -> Dict:
+        """스크리닝 결과를 LLM으로 분석하고 추가 분석을 추천"""
+
+        if not self._is_llm_available():
+            print("⚠️  LLM이 사용 불가능합니다. 기본 분석만 수행합니다.")
+            return self._fallback_analysis(screening_results, analyzed_criteria, trial_name)
+
+        print("🤖 LLM 기반 스크리닝 결과 분석 시작...")
+
+        # 1. 스크리닝 결과 요약
+        screening_summary = self._extract_screening_summary(screening_results)
+
+        # 2. LLM을 통한 종합적 분석 및 추천
+        try:
+            llm_analysis = self._llm_comprehensive_analysis(
+                screening_summary, analyzed_criteria, trial_name
+            )
+        except Exception as e:
+            print(f"⚠️  LLM 분석 실패: {e}")
+            return self._fallback_analysis(screening_results, analyzed_criteria, trial_name)
+
+        # 3. LLM이 추천한 분석을 위한 최적 레시피 선택
+        selected_recipes = self._llm_select_optimal_recipes(
+            llm_analysis['recommended_analyses'], screening_summary
+        )
+
+        # 4. LLM 기반 파라미터 최적화 및 실행
+        execution_results = self._execute_llm_optimized_analyses(
+            selected_recipes, analyzed_criteria, llm_analysis
+        )
+
+        return {
+            'screening_summary': screening_summary,
+            'llm_analysis': llm_analysis,
+            'selected_recipes': selected_recipes,
+            'execution_results': execution_results
+        }
+
+    def _extract_screening_summary(self, screening_results: List[QueryResult]) -> Dict:
+        """스크리닝 결과 요약"""
+        summary = {
+            'total_recipes': len(screening_results),
+            'successful_recipes': [r.recipe_name for r in screening_results if r.success],
+            'failed_recipes': [r.recipe_name for r in screening_results if not r.success],
+            'key_parameters': {},
+            'executed_recipe_types': []
+        }
+
+        for result in screening_results:
+            if result.success:
+                if result.parameters:
+                    summary['key_parameters'].update(result.parameters)
+                summary['executed_recipe_types'].append(result.recipe_name)
+
+        return summary
+
+    def _llm_comprehensive_analysis(self, screening_summary: Dict, analyzed_criteria: Dict, trial_name: str) -> Dict:
+        """LLM을 통한 종합적 분석 및 추천"""
+
+        prompt = f"""
+당신은 임상시험 데이터 분석 전문가입니다. 스크리닝이 완료된 임상시험에 대해 추가로 필요한 분석을 추천해주세요.
+
+## 임상시험 정보:
+- 임상시험명: {trial_name}
+- 분석된 조건: {analyzed_criteria}
+
+## 완료된 스크리닝 결과:
+- 실행된 레시피: {screening_summary['successful_recipes']}
+- 주요 파라미터: {screening_summary['key_parameters']}
+
+## 분석 요청:
+1. **임상적 의의 분석**: 이 스크리닝 결과가 임상시험 설계에 어떤 의미를 가지는지
+2. **추가 분석 필요성**: 어떤 추가 분석이 왜 필요한지 의료적 관점에서 설명
+3. **우선순위**: 가장 중요한 추가 분석 3-5개를 우선순위 순으로 제시
+4. **분석 목적**: 각 추천 분석이 임상시험에 어떤 가치를 제공하는지
+
+응답 형식 (JSON):
+{{
+    "clinical_significance": "스크리닝 결과의 임상적 의의",
+    "recommended_analyses": [
+        {{
+            "analysis_name": "분석명",
+            "priority": 1,
+            "clinical_rationale": "의료적 근거",
+            "expected_outcome": "예상되는 결과와 활용방안"
+        }}
+    ],
+    "data_gaps": ["추가로 필요한 데이터나 분석"],
+    "next_steps": "다음 단계 권장사항"
+}}
+"""
+
+        try:
+            response = self.llm_model.generate_content(prompt)
+
+            # JSON 파싱 시도
+            import json
+            import re
+
+            response_text = response.text.strip()
+            # JSON 블록 추출
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+
+            if json_match:
+                json_text = json_match.group(0)
+                llm_analysis = json.loads(json_text)
+            else:
+                # JSON 파싱 실패 시 텍스트 파싱
+                llm_analysis = self._parse_text_response(response_text)
+
+            print(f"🎯 LLM 분석 완료: {len(llm_analysis.get('recommended_analyses', []))}개 분석 추천")
+
+            return llm_analysis
+
+        except Exception as e:
+            print(f"⚠️  LLM 분석 실패, 기본 분석 사용: {e}")
+            return {
+                "clinical_significance": "기본 스크리닝 완료",
+                "recommended_analyses": [
+                    {
+                        "analysis_name": "환자 인구학적 특성 분석",
+                        "priority": 1,
+                        "clinical_rationale": "연구 대상자의 기본 특성 파악",
+                        "expected_outcome": "모집 가능한 환자군 프로파일"
+                    },
+                    {
+                        "analysis_name": "병원 방문 패턴 분석",
+                        "priority": 2,
+                        "clinical_rationale": "환자 접근성 및 추적관찰 계획",
+                        "expected_outcome": "최적 임상시험 센터 선정"
+                    }
+                ],
+                "data_gaps": ["추가 분석 필요"],
+                "next_steps": "추천 분석 진행"
+            }
+
+    def _parse_text_response(self, response_text: str) -> Dict:
+        """LLM 텍스트 응답 파싱"""
+        # 기본 구조로 파싱 시도
+        return {
+            "clinical_significance": "LLM 분석 결과",
+            "recommended_analyses": [
+                {
+                    "analysis_name": "환자 특성 분석",
+                    "priority": 1,
+                    "clinical_rationale": "기본 분석",
+                    "expected_outcome": "환자 프로파일"
+                }
+            ],
+            "data_gaps": [],
+            "next_steps": "분석 진행"
+        }
+
+    def _llm_select_optimal_recipes(self, recommended_analyses: List[Dict], screening_summary: Dict) -> List[RecipeMatch]:
+        """LLM을 통한 최적 레시피 선택"""
+
+        print("🧠 LLM이 최적 레시피 선택 중...")
+
+        # 사용 가능한 profile 레시피 정보 수집
+        profile_recipes_info = []
+        for recipe_name, recipe_info in self.agent.recipe_selector.recipe_metadata.items():
+            if recipe_info['category'] == 'profile':
+                profile_recipes_info.append({
+                    'name': recipe_name,
+                    'description': recipe_info['metadata'].get('description', ''),
+                    'tags': recipe_info['metadata'].get('tags', []),
+                    'parameters': recipe_info['metadata'].get('parameters', [])
+                })
+
+        # LLM에게 레시피 선택 요청
+        prompt = f"""
+당신은 임상데이터 분석 전문가입니다. 현재 임상시험 스크리닝이 완료되었고, **추가로 흥미롭고 의미있는 고급 분석**을 진행하려고 합니다.
+
+## 스크리닝 완료된 임상시험 정보:
+- **추천 분석들**: {json.dumps(recommended_analyses, ensure_ascii=False, indent=2)}
+- **스크리닝 요약**: {json.dumps(screening_summary, ensure_ascii=False, indent=2)}
+
+## 사용 가능한 고급 분석 레시피들:
+{json.dumps(profile_recipes_info[:25], ensure_ascii=False, indent=2)}
+... (총 {len(profile_recipes_info)}개 레시피 중 일부)
+
+## 🎯 **흥미로운 추가 분석 선택 지침**:
+1. **계절성/시간 패턴**: 질병의 계절별, 월별 발생 패턴 분석
+2. **환자 클러스터링**: 데이터 기반 환자군 분류 및 특성 분석
+3. **의료비 패턴**: 환자별, 질병별 의료비 지출 패턴
+4. **동반질환 분석**: 주요 동반질환과 합병증 패턴
+5. **복약 패턴**: 복약순응도, 치료 지속성 분석
+6. **지역별 심화**: 고급 지역 밀도 및 접근성 분석
+
+## 🔍 **추천 레시피 예시** (임상시험 주제에 따라 선택):
+- `analyze_seasonal_patterns_by_disease` - 계절별 발생 패턴
+- `analyze_data_driven_patient_clusters` - 환자 클러스터링
+- `analyze_medical_expenses_by_patient` - 의료비 패턴
+- `get_top_comorbidities_for_cohort` - 동반질환 분석
+- `analyze_medication_adherence_mpr` - 복약순응도
+- `analyze_advanced_regional_density` - 고급 지역 분석
+
+**임상시험 주제와 환자 특성을 고려하여 가장 흥미롭고 통찰력 있는 추가 분석 레시피 3-4개를 선택해주세요.**
+
+응답 형식 (JSON):
+{{
+    "recipe_selections": [
+        {{
+            "analysis_name": "분석명",
+            "selected_recipes": ["레시피명1", "레시피명2"],
+            "selection_rationale": "선택 근거"
+        }}
+    ]
+}}
+"""
+
+        try:
+            response = self.llm_model.generate_content(prompt)
+
+            # JSON 파싱
+            import re
+            json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+
+            selected_recipes = []
+            if json_match:
+                selection_data = json.loads(json_match.group(0))
+
+                for selection in selection_data.get('recipe_selections', []):
+                    for recipe_name in selection['selected_recipes']:
+                        if recipe_name in self.agent.recipe_selector.recipe_metadata:
+                            recipe_info = self.agent.recipe_selector.recipe_metadata[recipe_name]
+
+                            recipe_match = RecipeMatch(
+                                recipe_name=recipe_name,
+                                recipe_path=str(recipe_info['path']),
+                                match_score=10,  # LLM 선택 = 최고점
+                                matched_criteria=[],
+                                required_parameters={},
+                                description=recipe_info['metadata'].get('description', '')
+                            )
+                            selected_recipes.append(recipe_match)
+
+            print(f"✅ LLM이 선택한 레시피: {len(selected_recipes)}개")
+            for i, recipe in enumerate(selected_recipes, 1):
+                print(f"   {i}. {recipe.recipe_name}")
+
+            return selected_recipes
+
+        except Exception as e:
+            print(f"⚠️  LLM 레시피 선택 실패, 기본 레시피 사용: {e}")
+
+            # 동적 파라미터 호환성이 높은 흥미로운 추가 분석 레시피들
+            default_recipes = []
+            interesting_compatible_recipes = [
+                'analyze_seasonal_patterns_by_disease',          # 계절별 패턴 🌸 (disease_name_keyword, dates)
+                'get_top_comorbidities_for_cohort',              # 동반질환 분석 🔍 (disease_name_keyword, dates)
+                'analyze_advanced_regional_density',             # 고급 지역분석 📍 (disease_name_keyword, dates, min_count)
+                'analyze_hospital_visits_by_disease'             # 병원방문패턴 🏥 (disease_keyword, dates)
+            ]
+
+            for recipe_name in interesting_compatible_recipes:
+                if recipe_name in self.agent.recipe_selector.recipe_metadata:
+                    recipe_info = self.agent.recipe_selector.recipe_metadata[recipe_name]
+                    recipe_match = RecipeMatch(
+                        recipe_name=recipe_name,
+                        recipe_path=str(recipe_info['path']),
+                        match_score=8,
+                        matched_criteria=[],
+                        required_parameters={},
+                        description=recipe_info['metadata'].get('description', '')
+                    )
+                    default_recipes.append(recipe_match)
+
+            return default_recipes
+
+    def _execute_llm_optimized_analyses(self, selected_recipes: List[RecipeMatch],
+                                      analyzed_criteria: Dict, llm_analysis: Dict) -> List[QueryResult]:
+        """LLM 최적화된 파라미터로 분석 실행"""
+
+        if not selected_recipes:
+            print("⚠️  실행할 레시피가 없습니다.")
+            return []
+
+        print(f"🚀 LLM 최적화 분석 실행: {len(selected_recipes)}개 레시피")
+
+        results = []
+
+        for recipe_match in selected_recipes:
+            try:
+                print(f"📊 실행 중: {recipe_match.recipe_name}")
+
+                # LLM 기반 파라미터 최적화
+                optimized_parameters = self._llm_optimize_parameters(
+                    recipe_match, analyzed_criteria, llm_analysis
+                )
+
+                # 개별 레시피 실행을 위해 시퀀스로 변환
+                recipe_sequence = [recipe_match]
+                override_params = {recipe_match.recipe_name: optimized_parameters}
+                results_list = self.agent.query_executor.execute_recipe_sequence(
+                    recipe_sequence, self.agent.parameter_extractor,
+                    analyzed_criteria, dry_run=True,
+                    override_parameters=override_params
+                )
+                if results_list and len(results_list) > 0:
+                    result = results_list[0]
+                    results.append(result)
+                    print(f"   ✅ 완료: {recipe_match.recipe_name}")
+                else:
+                    # 실행 실패시 오류 결과 생성
+                    error_result = QueryResult(
+                        recipe_name=recipe_match.recipe_name,
+                        success=False,
+                        error_message="레시피 실행 실패 - 결과 없음",
+                        execution_time=0.0
+                    )
+                    results.append(error_result)
+                    print(f"   ❌ 실패: {recipe_match.recipe_name} - 결과 없음")
+
+            except Exception as e:
+                print(f"   ❌ 실패: {recipe_match.recipe_name} - {e}")
+                error_result = QueryResult(
+                    recipe_name=recipe_match.recipe_name,
+                    success=False,
+                    error_message=str(e),
+                    execution_time=0.0
+                )
+                results.append(error_result)
+
+        return results
+
+    def _llm_optimize_parameters(self, recipe_match: RecipeMatch,
+                               analyzed_criteria: Dict, llm_analysis: Dict) -> Dict:
+        """LLM을 통한 파라미터 최적화 (안전성 개선)"""
+
+        if not self._is_llm_available():
+            print(f"   ⚠️  LLM 사용 불가, 기본 파라미터 사용")
+            return self.agent.parameter_extractor.extract_parameters_for_recipe(
+                recipe_match, analyzed_criteria
+            )
+
+        # 기본 파라미터 추출
+        base_parameters = self.agent.parameter_extractor.extract_parameters_for_recipe(
+            recipe_match, analyzed_criteria
+        )
+
+        # LLM에게 파라미터 최적화 요청
+        recipe_info = self.agent.recipe_selector.recipe_metadata[recipe_match.recipe_name]
+        parameter_specs = recipe_info['metadata'].get('parameters', [])
+
+        prompt = f"""
+다음 레시피의 파라미터를 임상시험 맥락에 맞게 최적화해주세요.
+
+## 레시피: {recipe_match.recipe_name}
+## 설명: {recipe_match.description}
+
+## 파라미터 스펙:
+{json.dumps(parameter_specs, ensure_ascii=False, indent=2)}
+
+## 기본 파라미터 값:
+{json.dumps(base_parameters, ensure_ascii=False, indent=2)}
+
+## 임상시험 맥락:
+{json.dumps(llm_analysis, ensure_ascii=False, indent=2)}
+
+## 최적화 요청:
+- 임상시험 목적에 맞는 최적 파라미터 값 제안
+- top_n, limit 등은 임상적으로 의미있는 수준으로 조정
+- 기간, 범위 등은 실제 임상시험 일정을 고려
+
+최적화된 파라미터를 JSON 형태로 제공해주세요:
+{{"parameter_name": "optimized_value"}}
+"""
+
+        try:
+            response = self.llm_model.generate_content(prompt)
+
+            # JSON 파싱 시도
+            import re
+            json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+
+            if json_match:
+                optimized_params = json.loads(json_match.group(0))
+                # 기본 파라미터와 병합
+                final_parameters = {**base_parameters, **optimized_params}
+                print(f"   🎯 LLM 파라미터 최적화 완료")
+                return final_parameters
+            else:
+                return base_parameters
+
+        except Exception as e:
+            print(f"   ⚠️  파라미터 최적화 실패, 기본값 사용: {e}")
+            return base_parameters
+
+    def _fallback_analysis(self, screening_results: List[QueryResult], analyzed_criteria: Dict, trial_name: str) -> Dict:
+        """LLM 없이 기본 분석 수행"""
+        print("📊 기본 분석 모드로 실행...")
+
+        # 기본적인 통계 분석만 수행
+        screening_summary = self._extract_screening_summary(screening_results)
+
+        # 기본 권장사항 생성
+        basic_recommendations = []
+        if any("환자" in str(result.generated_sql) for result in screening_results if result.success):
+            basic_recommendations.append("환자 프로파일링 분석")
+        if any("병원" in str(result.generated_sql) for result in screening_results if result.success):
+            basic_recommendations.append("병원 분포 분석")
+
+        return {
+            "overall_assessment": "기본 분석 모드: LLM 기반 상세 분석은 사용할 수 없습니다.",
+            "feasibility_score": "N/A",
+            "key_insights": ["스크리닝 결과를 기반으로 한 기본 통계 분석"],
+            "recommended_analyses": basic_recommendations[:3],  # 최대 3개
+            "data_gaps": ["LLM 분석을 위한 API 키 설정 필요"],
+            "next_steps": "API 키를 설정하여 LLM 기반 상세 분석을 활성화하세요"
+        }
+

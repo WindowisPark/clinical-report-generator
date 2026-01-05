@@ -1,0 +1,40 @@
+# 레시피 고유 이름
+name: analyze_optimized_rwe_patterns
+
+# 레시피 설명
+description: "특정 질환 코호트의 Real-World Evidence(RWE) 치료 패턴을 최적화된 방식으로 분석합니다. 치료 기간, 방문 빈도, 비용을 기준으로 환자들을 여러 패턴으로 분류하고 각 그룹의 특성을 집계합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "RWE"
+  - "Real-World Evidence"
+  - "치료패턴"
+  - "행동분석"
+  - "최적화"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석의 기준이 되는 질환명 키워드"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_pattern_size"
+    type: "integer"
+    description: "결과에 표시할 최소 패턴 크기(환자 수) (예: 5)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "RWE 치료 패턴 분석"

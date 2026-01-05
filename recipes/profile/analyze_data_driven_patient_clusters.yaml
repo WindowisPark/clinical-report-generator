@@ -1,0 +1,40 @@
+# 레시피 고유 이름
+name: analyze_data_driven_patient_clusters
+
+# 레시피 설명
+description: "데이터 기반 환자 클러스터링을 수행합니다. K-평균(K-Means) 알고리즘을 사용하여 환자들을 유사한 특성을 가진 그룹으로 분류하고, 각 클러스터의 주요 특징(평균 연령, 평균 진료비 등)을 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "클러스터링"
+  - "환자 분류"
+  - "K-Means"
+  - "Clustering"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석의 기준이 되는 질환명 키워드"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "num_clusters"
+    type: "integer"
+    description: "클러스터 개수"
+    required: false
+    default: 4
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "환자 클러스터 분석"

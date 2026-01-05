@@ -1,0 +1,32 @@
+# 레시피 고유 이름
+name: analyze_data_driven_patient_clusters
+
+# 레시피 설명
+description: "통계적 사분위수를 사용하여 특정 질환 코호트의 환자들을 데이터 기반으로 클러스터링합니다. 연령, 방문 횟수, 비용을 기준으로 세그먼트를 나누고 주요 클러스터별 특성을 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "클러스터링"
+  - "환자 세분화"
+  - "사분위수"
+  - "Clustering"
+  - "Segmentation"
+  - "Persona"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_code_prefix"
+    type: "string"
+    description: "분석할 질병 코드의 시작 부분 (예: AI109)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true

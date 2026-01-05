@@ -1,0 +1,33 @@
+# Configuration files with sensitive information
+config.yaml
+config/users.yaml
+
+# User tokens (encrypted but still sensitive)
+data/tokens/
+
+# Data and logs
+data/usage_log.json
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+venv/
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Generated output
+output/
+
+# Query history
+data/query_history.json
+
+# Claude settings
+.claude/
+
+# OS files
+.DS_Store

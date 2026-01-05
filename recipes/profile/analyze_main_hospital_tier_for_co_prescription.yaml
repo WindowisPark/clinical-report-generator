@@ -1,0 +1,37 @@
+# 레시피 고유 이름
+name: analyze_main_hospital_tier_for_co_prescription
+
+# 레시피 설명
+description: "특정 질환에 대해 두 가지 약물 성분을 함께 처방받는 환자들이 주로 이용하는 병원 등급(1/2/3차)을 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "처방분석"
+  - "병용처방"
+  - "병원등급"
+  - "co-prescription"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "분석 대상 질환 키워드 (예: 혈증)"
+    required: true
+  - name: "drug1_keyword"
+    type: "string"
+    description: "병용 처방 약물 성분 1 (예: Amlodipine)"
+    required: true
+  - name: "drug2_keyword"
+    type: "string"
+    description: "병용 처방 약물 성분 2 (예: Candesartan)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "hospital_level"
+  y_column: "unique_patient_count"
+  title: "병용 처방 환자의 주 이용 병원 등급"

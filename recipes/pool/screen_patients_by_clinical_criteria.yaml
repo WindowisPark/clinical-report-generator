@@ -1,0 +1,35 @@
+# 레시피 고유 이름
+name: screen_patients_by_clinical_criteria
+
+# 레시피 설명
+description: "복잡한 포함/제외 기준(질병, 처치, 기간)에 따라 환자 리스트를 스크리닝하고, 연락처 및 최근 방문 병원 정보를 추출합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "환자 스크리닝"
+  - "코호트 추출"
+  - "포함/제외 기준"
+  - "Patient Pool"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "neuropathy_keyword"
+    type: "string"
+    description: "포함 기준이 되는 주 질환 키워드 (예: 다발신경병증)"
+    required: true
+  - name: "neuropathy_exclude_keyword"
+    type: "string"
+    description: "주 질환에서 제외할 특정 키워드 (예: 기타 염증성 다발신경병증)"
+    required: true
+  - name: "exclusion_disease_keyword"
+    type: "string"
+    description: "제외 기준이 되는 질환 키워드 (예: 당뇨)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "스크리닝된 환자 리스트"

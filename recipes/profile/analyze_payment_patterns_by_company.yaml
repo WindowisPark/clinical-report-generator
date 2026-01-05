@@ -1,0 +1,33 @@
+# 레시피 고유 이름
+name: analyze_payment_patterns_by_company
+
+# 레시피 설명
+description: "보험사별 결제 패턴 및 의료비 지출 현황을 분석합니다. 보험사별 환자 수, 거래 건수, 의료비 통계 등을 제공합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "보험사 분석"
+  - "결제 패턴"
+  - "의료비 통계"
+  - "거래 분석"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "analysis_period_start"
+    type: "date"
+    description: "분석 시작 기간 (YYYY-MM-DD)"
+    required: true
+  - name: "analysis_period_end"
+    type: "date"
+    description: "분석 종료 기간 (YYYY-MM-DD)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "company_name"
+  y_column: "total_amount_krw"
+  title: "보험사별 의료비 지출 현황"

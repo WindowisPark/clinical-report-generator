@@ -1,0 +1,29 @@
+# 레시피 고유 이름
+name: analyze_hospital_visits_by_disease
+
+# 레시피 설명
+description: "특정 질환 키워드를 가진 환자들이 어느 병원을 얼마나 방문하는지 분석합니다. 병원별 유니크 환자 수와 총 방문 횟수를 집계합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "병원 분석"
+  - "방문 횟수"
+  - "질환별"
+  - "시장 분석"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드 (예: 파킨슨, 치매)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "병원명"
+  y_column: "유니크_환자수"
+  title: "병원별 환자 방문 현황"

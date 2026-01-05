@@ -1,0 +1,43 @@
+# 레시피 고유 이름
+name: analyze_patient_characteristics_with_comorbidities
+
+# 레시피 설명
+description: "특정 질환 환자의 특성을 분석합니다. 연령, 주요 합병증(당뇨, 고지혈증, 고혈압), 주로 이용하는 병원 등급 등을 포함합니다. 다양한 질환에 적용 가능한 범용 레시피입니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "환자 특성"
+  - "합병증 분석"
+  - "질환 프로파일"
+  - "병원 이용 패턴"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "대상 질환 키워드 (예: 염증성 간질환)"
+    required: false
+    default: "염증성 간질환"
+  - name: "t2d_keyword"
+    type: "string"
+    description: "제2형 당뇨병을 식별할 키워드 (예: 당뇨)"
+    required: false
+    default: "당뇨"
+  - name: "dyslipidemia_keyword"
+    type: "string"
+    description: "이상지질혈증을 식별할 키워드 (예: 지질, 고지혈)"
+    required: false
+    default: "지질"
+  - name: "hypertension_keyword"
+    type: "string"
+    description: "고혈압을 식별할 키워드 (예: 고혈압)"
+    required: false
+    default: "고혈압"
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "질환별 환자 특성 및 합병증 분석"

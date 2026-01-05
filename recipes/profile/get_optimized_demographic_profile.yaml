@@ -1,0 +1,38 @@
+# 레시피 고유 이름
+name: get_optimized_demographic_profile
+
+# 레시피 설명
+description: "특정 질환 코호트의 성별 및 연령대 분포를 최적화된 방식으로 분석합니다. 환자별로 한 번만 계산하여 성능을 높이고, 첫 방문일 기준 연령을 사용합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "인구통계"
+  - "성별분포"
+  - "연령분포"
+  - "최적화"
+  - "데모그래픽"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "검색할 질환명 키워드 (예: 고혈압)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "demographic_group"
+  y_column: "patient_count"
+  title: "인구통계 분포"

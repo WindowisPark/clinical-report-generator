@@ -1,0 +1,28 @@
+# 레시피 고유 이름
+name: get_patient_journey_with_prescriptions
+
+# 레시피 설명
+description: "특정 환자 한 명의 전체 방문 기록(Patient Journey)과 각 방문 시점에 처방된 약물 및 성분 정보를 조회합니다. 방문일과 처방일이 정확히 일치하지 않는 경우, ±3일 내 가장 가까운 처방 기록을 매칭합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "patient journey"
+  - "환자 여정"
+  - "처방기록"
+  - "타임라인"
+  - "개인 프로파일"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "user_id"
+    type: "integer"
+    description: "조회할 환자의 고유 ID (예: 2111074)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "환자 여정 (Patient Journey)"

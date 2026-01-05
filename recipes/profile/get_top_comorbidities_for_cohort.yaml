@@ -1,0 +1,46 @@
+# 레시피 고유 이름
+name: get_top_comorbidities_for_cohort
+
+# 레시피 설명
+description: "특정 질환을 가진 환자군에서 가장 빈번하게 발생하는 상위 동반질환(Comorbidities)을 분석합니다. 주 질환과의 연관성을 파악하고, 복합적인 환자 프로파일을 이해하는 데 도움을 줍니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "동반질환"
+  - "Comorbidity"
+  - "유병률"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석의 기준이 되는 주질환의 이름 키워드 (예: 고혈압)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_patient_count"
+    type: "integer"
+    description: "결과에 포함될 최소 동반질환 환자 수"
+    required: false
+    default: 10
+  - name: "top_n"
+    type: "integer"
+    description: "상위 N개 동반질환만 표시"
+    required: false
+    default: 10
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "comorbid_name"
+  y_column: "patients_with_comorbidity"
+  title: "주요 동반 질환"

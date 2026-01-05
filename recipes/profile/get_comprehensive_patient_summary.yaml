@@ -1,0 +1,38 @@
+# 레시피 고유 이름
+name: get_comprehensive_patient_summary
+
+# 레시피 설명
+description: "특정 질환 코드와 기간에 해당하는 환자군의 종합 현황을 분석합니다. 총 환자 수, 총 진료 건수, 평균 진료비, 평균 연령, 환자당 평균 방문 횟수 등의 지표를 제공합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "환자 요약"
+  - "종합 현황"
+  - "대시보드"
+  - "Patient Summary"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "검색할 질환명 키워드 (예: 고혈압)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "hospital_type_filter"
+    type: "string"
+    description: "병원 종류 필터 (예: 상급종합, 종합병원, 의원)"
+    required: false
+
+# 시각화 정보
+visualization:
+  chart_type: "metric" # 요약 카드 형태

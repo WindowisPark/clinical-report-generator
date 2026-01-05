@@ -1,0 +1,27 @@
+# 레시피 고유 이름
+name: get_diagnosis_by_treatment_act
+
+# 레시피 설명
+description: "특정 의료 행위(키워드)가 수행된 날의 진단명, 진단 코드, 병원 정보를 함께 조회합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "의료 행위"
+  - "진단명"
+  - "교차분석"
+  - "처치"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "act_kw"
+    type: "string"
+    description: "검색할 의료 행위명 키워드 (예: MAST, 알레르겐, 알레르기)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "의료 행위별 진단 정보"

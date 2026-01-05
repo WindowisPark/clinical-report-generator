@@ -1,0 +1,37 @@
+# 레시피 고유 이름
+name: screen_visits_by_inclusion_exclusion_list
+
+# 레시피 설명
+description: "특정 질환(포함 기준)을 가진 환자 중, 사전에 정의된 복잡한 제외 기준(질병, 약물)에 해당하지 않는 환자들의 방문 기록을 스크리닝합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "환자 스크리닝"
+  - "포함/제외 기준"
+  - "clinical trial"
+  - "gMG"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "inclusion_disease_keyword"
+    type: "string"
+    description: "스크리닝의 기준이 되는 포함 질환 키워드 (예: 중증근무력증)"
+    required: true
+  - name: "exclusion_disease_keywords"
+    type: "string"
+    description: "제외할 질환 키워드들 (콤마로 구분, 예: 간염,HIV,AIDS,암,종양)"
+    required: false
+    default: "간염,HIV,AIDS,면역결핍,암,종양,백혈구감소,혈소판감소,호중구감소,빈혈,간경변,간부전,신부전,신장질환,심근경색,심부전,부정맥,COPD,만성폐쇄성폐질환,간질성폐질환,폐섬유화"
+  - name: "exclusion_drug_keywords"
+    type: "string"
+    description: "제외할 약물 키워드들 (콤마로 구분, 예: 리툭시맙,에쿨리주맙,와파린)"
+    required: false
+    default: "리툭시맙,에쿨리주맙,라불리주맙,efgartigimod,FcRn,ibrutinib,acalabrutinib,와파린,NOAC,아픽사반,리바록사반"
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "스크리닝된 방문 기록"

@@ -1,0 +1,39 @@
+# 레시피 고유 이름
+name: analyze_advanced_regional_density
+
+# 레시피 설명
+description: "특정 질환 코호트의 지역별(시도/시군구) 의료 밀도와 비용을 심층 분석합니다. 데이터 기반 분위수를 사용하여 밀도 수준을 분류하고, 윈저라이즈 평균 등 강건한 통계치를 제공합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "지역분석"
+  - "의료밀도"
+  - "시장분석"
+  - "비용분석"
+  - "Geospatial"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_code_prefix"
+    type: "string"
+    description: "분석할 질병 코드의 시작 부분 (예: AI109)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_patient_count"
+    type: "integer"
+    description: "분석에 포함될 지역의 최소 환자 수 (예: 10)"
+    required: true
+  - name: "top_n"
+    type: "integer"
+    description: "조회할 상위 지역 개수 (예: 20)"
+    required: true

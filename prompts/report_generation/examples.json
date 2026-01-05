@@ -1,0 +1,158 @@
+[
+  {
+    "type": "feasibility",
+    "user_query": "천식을 동반한 다년성 알레르기 비염 환자 대상 DW1807 3상 임상시험 환자 모집 타당성 분석",
+    "output": {
+      "report_title": "DW1807 임상시험 환자 모집 타당성 분석",
+      "executive_summary": "본 보고서는 '천식을 동반한 다년성 알레르기 비염' 환자 대상 DW1807 3상 임상시험의 환자 모집 타당성을 분석합니다. 목표 모집 인원 200명에 대해, 현재 보유한 RWD 데이터를 기반으로 예상 모집 성공률 및 소요 기간을 예측하여 임상시험의 성공 가능성을 평가하는 것을 목적으로 합니다.",
+      "table_of_contents": [
+        "1. 모집 성공률 및 소요 기간 예측",
+        "2. 환자군 상세 프로파일 분석",
+        "3. 주요 동반 질환 분석",
+        "4. 경쟁 및 기존 처방 약물 현황"
+      ],
+      "pages": [
+        {
+          "title": "1. 모집 성공률 및 소요 기간 예측",
+          "rationale": "전체 환자 풀에서부터 주요 포함/제외 기준을 적용하여 최종 모집 가능한 환자 수를 예측하고, 이를 통해 목표 인원 달성 가능성과 예상 소요 기간을 산출합니다.",
+          "recipe_name": "analyze_recruitment_feasibility",
+          "parameters": {
+            "disease_name_keyword": "알레르기 비염",
+            "min_age": 19,
+            "max_age": 75,
+            "min_visits": 1,
+            "target_enrollment": 200
+          }
+        },
+        {
+          "title": "2. 환자군 상세 프로파일 분석",
+          "rationale": "모집 대상 환자군의 인구통계학적 특성(성별, 연령) 및 지역적 분포를 파악하여, 리크루팅 전략 수립 시 타겟 대상을 명확히 합니다.",
+          "recipe_name": "get_demographic_distribution_by_disease",
+          "parameters": {
+            "disease_name_keyword": "알레르기 비염",
+            "start_date": "[DEFAULT_3_YEARS_AGO]",
+            "end_date": "[CURRENT_DATE]"
+          }
+        },
+        {
+          "title": "3. 주요 동반 질환 분석",
+          "rationale": "대상 환자군이 보유한 주요 동반 질환을 파악하여, 임상시험 진행 중 발생할 수 있는 잠재적 리스크를 관리하고, 복합적인 환자 특성을 이해합니다.",
+          "recipe_name": "get_top_comorbidities_for_cohort",
+          "parameters": {
+            "disease_name_keyword": "알레르기 비염",
+            "start_date": "[DEFAULT_3_YEARS_AGO]",
+            "end_date": "[CURRENT_DATE]",
+            "top_n": 10
+          }
+        },
+        {
+          "title": "4. 경쟁 및 기존 처방 약물 현황",
+          "rationale": "현재 시장에서 처방되고 있는 주요 약물들을 파악하여, 대상 환자군의 기존 치료 패턴을 이해하고 임상시험 설계 시 대조군 설정 및 시장 진입 전략에 활용합니다.",
+          "recipe_name": "get_top_prescribed_ingredients_by_disease",
+          "parameters": {
+            "disease_name_keyword": "알레르기 비염",
+            "start_date": "[DEFAULT_3_YEARS_AGO]",
+            "end_date": "[CURRENT_DATE]",
+            "top_n": 10
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "market_landscape",
+    "user_query": "원형탈모증 신약 시장성 분석",
+    "output": {
+      "report_title": "원형탈모증 시장 분석 및 환자 프로파일링",
+      "executive_summary": "본 보고서는 신규 원형탈모증 치료제 개발을 위한 시장성 분석을 목적으로 합니다. RWD를 기반으로 국내 원형탈모증 시장의 규모를 추정하고, 환자 특성 및 주요 의료 이용 패턴을 분석하여, 성공적인 신약 개발 및 시장 진입 전략 수립을 위한 핵심 인사이트를 제공합니다.",
+      "table_of_contents": [
+        "1. 전체 시장 규모 분석",
+        "2. 환자 인구통계학적 특성",
+        "3. 주요 의료 이용 패턴 (병원 등급별)",
+        "4. 주요 처방 약물 분석"
+      ],
+      "pages": [
+        {
+          "title": "1. 전체 시장 규모 분석",
+          "rationale": "국내 원형탈모증 환자의 전체 수를 파악하여 시장의 매력도를 평가하고, 잠재적 시장 규모를 예측합니다.",
+          "recipe_name": "get_patient_count_by_disease_keyword",
+          "parameters": {
+            "disease_keyword": "원형탈모증"
+          }
+        },
+        {
+          "title": "2. 환자 인구통계학적 특성",
+          "rationale": "주요 환자군의 성별 및 연령대 분포를 분석하여, 마케팅 및 개발 전략 수립 시 핵심 타겟이 될 인구통계학적 세그먼트를 식별합니다.",
+          "recipe_name": "get_demographic_distribution_by_disease",
+          "parameters": {
+            "disease_name_keyword": "원형탈모증",
+            "start_date": "[DEFAULT_3_YEARS_AGO]",
+            "end_date": "[CURRENT_DATE]"
+          }
+        },
+        {
+          "title": "3. 주요 의료 이용 패턴 (병원 등급별)",
+          "rationale": "환자들이 주로 이용하는 병원 등급(1, 2, 3차)을 분석하여, 제품 출시 후 영업 및 마케팅 채널 전략을 수립하는 데 활용합니다.",
+          "recipe_name": "analyze_visits_by_hospital_tier",
+          "parameters": {
+            "disease_keyword": "원형탈모증"
+          }
+        },
+        {
+          "title": "4. 주요 처방 약물 분석",
+          "rationale": "현재 시장의 표준 치료(Standard of Care)와 주요 경쟁 약물을 파악하여, 개발 중인 신약의 시장 내 포지셔닝 및 차별화 전략을 수립합니다.",
+          "recipe_name": "get_top_prescribed_ingredients_by_disease",
+          "parameters": {
+            "disease_name_keyword": "원형탈모증",
+            "start_date": "[DEFAULT_3_YEARS_AGO]",
+            "end_date": "[CURRENT_DATE]",
+            "top_n": 10
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "edge_case_insufficient_data",
+    "user_query": "희귀질환 XYZ 환자 분석",
+    "output": {
+      "report_title": "희귀질환 XYZ 환자 기초 분석",
+      "executive_summary": "본 보고서는 희귀질환 XYZ에 대한 기초적인 환자 현황을 파악하기 위한 탐색적 분석입니다. 데이터 가용성이 제한적일 수 있으므로, 먼저 환자 수와 기본적인 인구통계학적 특성을 확인한 후 추가 분석 방향을 결정합니다.",
+      "table_of_contents": [
+        "1. 전체 환자 수 확인",
+        "2. 기본 인구통계 분석",
+        "3. 지역별 분포"
+      ],
+      "pages": [
+        {
+          "title": "1. 전체 환자 수 확인",
+          "rationale": "희귀질환의 경우 먼저 데이터베이스 내 환자 수를 확인하여 추가 분석의 실행 가능성을 판단합니다.",
+          "recipe_name": "get_patient_count_by_disease_keyword",
+          "parameters": {
+            "disease_keyword": "XYZ"
+          }
+        },
+        {
+          "title": "2. 기본 인구통계 분석",
+          "rationale": "제한된 환자 수에서도 성별, 연령 분포를 파악하여 주요 환자 세그먼트를 식별합니다.",
+          "recipe_name": "get_demographic_distribution_by_disease",
+          "parameters": {
+            "disease_name_keyword": "XYZ",
+            "start_date": "[DEFAULT_3_YEARS_AGO]",
+            "end_date": "[CURRENT_DATE]"
+          }
+        },
+        {
+          "title": "3. 지역별 분포",
+          "rationale": "환자들이 집중된 지역을 파악하여 향후 임상시험 기관 선정이나 환자 접근성 전략 수립에 활용합니다.",
+          "recipe_name": "analyze_screened_regional_distribution",
+          "parameters": {
+            "disease_name": "XYZ",
+            "start_date": "[DEFAULT_3_YEARS_AGO]",
+            "end_date": "[CURRENT_DATE]"
+          }
+        }
+      ]
+    }
+  }
+]

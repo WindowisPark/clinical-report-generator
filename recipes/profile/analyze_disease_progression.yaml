@@ -1,0 +1,34 @@
+# 레시피 고유 이름
+name: analyze_disease_progression
+
+# 레시피 설명
+description: "특정 질환(A)에서 다른 질환(B)로의 진행 패턴을 분석합니다. 각 환자별 진행 기간(일수)을 계산하여 질병 진행 속도를 평가합니다. 다양한 질환 진행 경로 분석에 활용 가능합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "질병 진행"
+  - "진행 패턴"
+  - "질환 경로 분석"
+  - "시간 경과 분석"
+  - "코호트 분석"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "from_disease_keyword"
+    type: "string"
+    description: "시작 질환 키워드 (예: 지방간, 당뇨, 고혈압 등)"
+    required: true
+  - name: "to_disease_keyword"
+    type: "string"
+    description: "진행된 질환 키워드 (예: 염증성 간질환, 신부전 등)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "progression_bin"
+  y_column: "patient_count"
+  title: "질병 진행 기간 분포 분석"

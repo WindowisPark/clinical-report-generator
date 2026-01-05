@@ -1,0 +1,697 @@
+{
+  "test_date": "2025-10-14T11:35:15.452005",
+  "total_duration_seconds": 327.54,
+  "total_tests": 25,
+  "sql_generation": {
+    "success_count": 25,
+    "failure_count": 0,
+    "success_rate": 100.0
+  },
+  "execution": {
+    "attempted": 25,
+    "success_count": 24,
+    "failure_count": 1,
+    "success_rate": 96.0
+  },
+  "feature_matching": {
+    "avg_match_rate": 71.93
+  },
+  "category_breakdown": {
+    "multi_table_joins": {
+      "total": 5,
+      "sql_generated": 5,
+      "execution_success": 5,
+      "avg_feature_match": 0.5333333333333333
+    },
+    "nested_subqueries": {
+      "total": 5,
+      "sql_generated": 5,
+      "execution_success": 5,
+      "avg_feature_match": 0.8766666666666667
+    },
+    "window_functions": {
+      "total": 5,
+      "sql_generated": 5,
+      "execution_success": 5,
+      "avg_feature_match": 0.7
+    },
+    "complex_aggregations": {
+      "total": 5,
+      "sql_generated": 5,
+      "execution_success": 4,
+      "avg_feature_match": 0.72
+    },
+    "date_range_queries": {
+      "total": 5,
+      "sql_generated": 5,
+      "execution_success": 5,
+      "avg_feature_match": 0.7666666666666667
+    }
+  },
+  "detailed_results": [
+    {
+      "id": "MTJ-01",
+      "category": "multi_table_joins",
+      "query": "고혈압(AI1) 환자 중 당뇨(AE1)도 함께 있는 환자 수는?",
+      "expected_features": [
+        "JOIN",
+        "res_disease_code LIKE 'AI1%'",
+        "res_disease_code LIKE 'AE1%'"
+      ],
+      "timestamp": "2025-10-14T11:29:47.908700",
+      "sql_generated": true,
+      "generated_sql": "SELECT COUNT(DISTINCT user_id) AS `환자수`\nFROM basic_treatment\nWHERE res_disease_code LIKE 'AI1%'  -- 고혈압\n  AND deleted = FALSE\n  AND user_id IN (SELECT user_id FROM basic_treatment WHERE res_disease_code LIKE 'AE1%' AND deleted = FALSE) -- 당뇨병",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 1,
+      "execution_time": 18.91,
+      "error_message": null,
+      "feature_matches": [
+        "res_disease_code LIKE 'AI1%'",
+        "res_disease_code LIKE 'AE1%'"
+      ],
+      "feature_match_rate": 0.6666666666666666
+    },
+    {
+      "id": "MTJ-02",
+      "category": "multi_table_joins",
+      "query": "서울 지역 65세 이상 환자의 평균 처방 약품 수는?",
+      "expected_features": [
+        "JOIN",
+        "TO_DATE(birthday",
+        "res_city LIKE '%서울%'"
+      ],
+      "timestamp": "2025-10-14T11:30:10.537934",
+      "sql_generated": true,
+      "generated_sql": "-- 서울 지역 65세 이상 환자의 평균 처방 약품 수 계산\nSELECT\n    AVG(drug_count) AS `평균 처방 약품 수`\nFROM (\n    SELECT\n        bt.user_id,\n        bt.res_treat_start_date,\n        COUNT(DISTINCT pd.res_drug_name) AS drug_count\n    FROM\n        basic_treatment bt\n    JOIN\n        insured_person ip ON bt.user_id = ip.user_id\n    LEFT JOIN\n        prescribed_drug pd ON bt.user_id = pd.user_id AND bt.res_treat_start_date = pd.res_treat_start_date\n    WHERE\n        bt.res_hospital_name LIKE '%서울%'\n        AND YEAR(CURRENT_DATE) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) >= 65\n        AND bt.deleted = FALSE\n        AND pd.deleted = FALSE\n    GROUP BY\n        bt.user_id,\n        bt.res_treat_start_date\n) AS subquery",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 1,
+      "execution_time": 10.17,
+      "error_message": null,
+      "feature_matches": [
+        "JOIN"
+      ],
+      "feature_match_rate": 0.3333333333333333
+    },
+    {
+      "id": "MTJ-03",
+      "category": "multi_table_joins",
+      "query": "최근 1년간 진료받은 환자의 질병별 분포를 알려줘",
+      "expected_features": [
+        "JOIN",
+        "TO_DATE(res_treat_start_date",
+        "GROUP BY"
+      ],
+      "timestamp": "2025-10-14T11:30:25.663844",
+      "sql_generated": true,
+      "generated_sql": "-- 최근 1년간 진료받은 환자의 질병별 분포\nSELECT\n    res_disease_name,\n    COUNT(DISTINCT user_id) AS `환자수`\nFROM\n    basic_treatment\nWHERE\n    deleted = FALSE\n    AND TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE(), 365)\nGROUP BY\n    res_disease_name\nORDER BY\n    `환자수` DESC",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 10000,
+      "execution_time": 9.21,
+      "error_message": null,
+      "feature_matches": [
+        "TO_DATE(res_treat_start_date",
+        "GROUP BY"
+      ],
+      "feature_match_rate": 0.6666666666666666
+    },
+    {
+      "id": "MTJ-04",
+      "category": "multi_table_joins",
+      "query": "남성 환자 중 처방받은 약물 종류가 5개 이상인 사람은?",
+      "expected_features": [
+        "JOIN",
+        "gender = 'M'",
+        "COUNT",
+        "HAVING"
+      ],
+      "timestamp": "2025-10-14T11:30:37.589900",
+      "sql_generated": true,
+      "generated_sql": "-- 남성 환자 중 처방받은 약물 종류가 5개 이상인 사람\nSELECT\n    bt.user_id\nFROM basic_treatment bt\nINNER JOIN insured_person ip ON bt.user_id = ip.user_id\nINNER JOIN prescribed_drug pd ON bt.user_id = pd.user_id AND bt.res_treat_start_date = pd.res_treat_start_date\nWHERE ip.gender = 'MAN'\n  AND bt.deleted = FALSE\nGROUP BY bt.user_id\nHAVING COUNT(DISTINCT pd.res_drug_name) >= 5",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 10000,
+      "execution_time": 17.07,
+      "error_message": null,
+      "feature_matches": [
+        "JOIN",
+        "COUNT",
+        "HAVING"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "MTJ-05",
+      "category": "multi_table_joins",
+      "query": "2020년 이후 진료받은 환자의 지역별 평균 연령은?",
+      "expected_features": [
+        "JOIN",
+        "TO_DATE(res_treat_start_date",
+        "TO_DATE(birthday",
+        "GROUP BY res_city"
+      ],
+      "timestamp": "2025-10-14T11:30:58.283369",
+      "sql_generated": true,
+      "generated_sql": "-- 2020년 이후 진료받은 환자의 지역별 평균 연령 계산\nSELECT\n    CASE\n        WHEN bt.res_hospital_name LIKE '%서울%' THEN '서울'\n        WHEN bt.res_hospital_name LIKE '%경기%' THEN '경기'\n        WHEN bt.res_hospital_name LIKE '%부산%' THEN '부산'\n        WHEN bt.res_hospital_name LIKE '%대구%' THEN '대구'\n        WHEN bt.res_hospital_name LIKE '%인천%' THEN '인천'\n        WHEN bt.res_hospital_name LIKE '%광주%' THEN '광주'\n        WHEN bt.res_hospital_name LIKE '%대전%' THEN '대전'\n        WHEN bt.res_hospital_name LIKE '%울산%' THEN '울산'\n        WHEN bt.res_hospital_name LIKE '%세종%' THEN '세종'\n        WHEN bt.res_hospital_name LIKE '%강원%' THEN '강원'\n        WHEN bt.res_hospital_name LIKE '%충북%' THEN '충북'\n        WHEN bt.res_hospital_name LIKE '%충남%' THEN '충남'\n        WHEN bt.res_hospital_name LIKE '%전북%' THEN '전북'\n        WHEN bt.res_hospital_name LIKE '%전남%' THEN '전남'\n        WHEN bt.res_hospital_name LIKE '%경북%' THEN '경북'\n        WHEN bt.res_hospital_name LIKE '%경남%' THEN '경남'\n        WHEN bt.res_hospital_name LIKE '%제주%' THEN '제주'\n        ELSE '기타'\n    END AS `지역`,\n    AVG(YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')))\nFROM basic_treatment bt\nJOIN insured_person ip ON bt.user_id = ip.user_id\nWHERE YEAR(TRY_TO_DATE(bt.res_treat_start_date, 'yyyyMMdd')) >= 2020\n    AND bt.deleted = FALSE\n    AND TRY_TO_DATE(ip.birthday, 'yyyyMMdd') IS NOT NULL\nGROUP BY 1",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 18,
+      "execution_time": 13.13,
+      "error_message": null,
+      "feature_matches": [
+        "JOIN"
+      ],
+      "feature_match_rate": 0.25
+    },
+    {
+      "id": "NSQ-01",
+      "category": "nested_subqueries",
+      "query": "평균 연령보다 높은 환자만 필터링해서 질병 분포 보여줘",
+      "expected_features": [
+        "SELECT",
+        "FROM",
+        "WHERE",
+        "AVG",
+        "TO_DATE(birthday"
+      ],
+      "timestamp": "2025-10-14T11:31:16.878576",
+      "sql_generated": true,
+      "generated_sql": "-- 평균 연령보다 높은 환자들의 질병 분포\nWITH UserAge AS (\n    SELECT\n        bt.user_id,\n        YEAR(CURRENT_DATE) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) AS age\n    FROM basic_treatment bt\n    JOIN insured_person ip ON bt.user_id = ip.user_id\n    WHERE bt.deleted = FALSE\n    AND TRY_TO_DATE(ip.birthday, 'yyyyMMdd') IS NOT NULL\n),\nAvgAge AS (\n    SELECT AVG(age) AS avg_age FROM UserAge\n)\nSELECT\n    bt.res_disease_name,\n    COUNT(DISTINCT bt.user_id) AS patient_count\nFROM basic_treatment bt\nJOIN UserAge ua ON bt.user_id = ua.user_id\nJOIN AvgAge aa ON 1=1\nWHERE bt.deleted = FALSE\n  AND ua.age > aa.avg_age\nGROUP BY bt.res_disease_name\nORDER BY patient_count DESC\nLIMIT 100",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 100,
+      "execution_time": 30.51,
+      "error_message": null,
+      "feature_matches": [
+        "SELECT",
+        "FROM",
+        "WHERE",
+        "AVG"
+      ],
+      "feature_match_rate": 0.8
+    },
+    {
+      "id": "NSQ-02",
+      "category": "nested_subqueries",
+      "query": "처방 횟수가 가장 많은 상위 10개 약물을 처방받은 환자 수는?",
+      "expected_features": [
+        "IN",
+        "SELECT",
+        "ORDER BY",
+        "LIMIT 10"
+      ],
+      "timestamp": "2025-10-14T11:31:51.095943",
+      "sql_generated": true,
+      "generated_sql": "-- 처방 횟수가 가장 많은 상위 10개 약물을 처방받은 환자 수\nSELECT\n    COUNT(DISTINCT user_id) AS `환자 수`\nFROM (\n    SELECT\n        user_id,\n        res_drug_name,\n        COUNT(*) AS prescription_count\n    FROM\n        prescribed_drug\n    WHERE\n        deleted = FALSE\n    GROUP BY\n        user_id,\n        res_drug_name\n    ORDER BY\n        prescription_count DESC\n    LIMIT 10\n)",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 1,
+      "execution_time": 7.58,
+      "error_message": null,
+      "feature_matches": [
+        "IN",
+        "SELECT",
+        "ORDER BY",
+        "LIMIT 10"
+      ],
+      "feature_match_rate": 1.0
+    },
+    {
+      "id": "NSQ-03",
+      "category": "nested_subqueries",
+      "query": "서울 지역 환자 평균보다 처방 약물이 많은 환자 목록",
+      "expected_features": [
+        "WHERE",
+        "COUNT",
+        "AVG",
+        "res_city LIKE '%서울%'"
+      ],
+      "timestamp": "2025-10-14T11:32:01.998396",
+      "sql_generated": true,
+      "generated_sql": "WITH\n  SeoulPatients AS (\n    SELECT DISTINCT\n      bt.user_id,\n      bt.res_treat_start_date\n    FROM basic_treatment bt\n    WHERE\n      bt.res_hospital_name LIKE '%서울%'\n      AND bt.deleted = FALSE\n  ),\n  PatientDrugCounts AS (\n    SELECT\n      sp.user_id,\n      sp.res_treat_start_date,\n      COUNT(DISTINCT pd.res_drug_name) AS drug_count\n    FROM SeoulPatients sp\n    JOIN prescribed_drug pd ON sp.user_id = pd.user_id\n    AND sp.res_treat_start_date = pd.res_treat_start_date\n    WHERE\n      pd.deleted = FALSE\n    GROUP BY\n      sp.user_id,\n      sp.res_treat_start_date\n  ),\n  AvgDrugCount AS (\n    SELECT\n      AVG(drug_count) AS avg_drug_count\n    FROM PatientDrugCounts\n  )\nSELECT\n  pdc.user_id,\n  pdc.res_treat_start_date,\n  pdc.drug_count\nFROM PatientDrugCounts pdc\nJOIN AvgDrugCount adc ON 1 = 1\nWHERE\n  pdc.drug_count > adc.avg_drug_count",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 10000,
+      "execution_time": 7.29,
+      "error_message": null,
+      "feature_matches": [
+        "WHERE",
+        "COUNT",
+        "AVG"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "NSQ-04",
+      "category": "nested_subqueries",
+      "query": "최근 1년간 진료 환자 중 고혈압 환자 비율은?",
+      "expected_features": [
+        "SELECT",
+        "COUNT",
+        "WHERE",
+        "TO_DATE(res_treat_start_date"
+      ],
+      "timestamp": "2025-10-14T11:32:14.719473",
+      "sql_generated": true,
+      "generated_sql": "-- 최근 1년간 전체 진료 환자 수와 고혈압 진료 환자 수를 계산하고, 고혈압 환자 비율을 구합니다.\nWITH RecentPatients AS (\n  SELECT COUNT(DISTINCT user_id) AS total_patients\n  FROM basic_treatment\n  WHERE TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE(), 365) AND deleted = FALSE\n),\nHyptertensionPatients AS (\n  SELECT COUNT(DISTINCT user_id) AS hypertension_patients\n  FROM basic_treatment\n  WHERE TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE(), 365) AND deleted = FALSE AND res_disease_code LIKE 'AI1%'\n)\nSELECT \n  (SELECT hypertension_patients FROM HyptertensionPatients) * 100.0 / (SELECT total_patients FROM RecentPatients) AS hypertension_percentage",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 1,
+      "execution_time": 4.82,
+      "error_message": null,
+      "feature_matches": [
+        "SELECT",
+        "COUNT",
+        "WHERE",
+        "TO_DATE(res_treat_start_date"
+      ],
+      "feature_match_rate": 1.0
+    },
+    {
+      "id": "NSQ-05",
+      "category": "nested_subqueries",
+      "query": "가장 많이 처방되는 약물 TOP 5를 받은 환자의 평균 연령",
+      "expected_features": [
+        "IN",
+        "SELECT",
+        "ORDER BY",
+        "LIMIT 5",
+        "AVG",
+        "TO_DATE(birthday"
+      ],
+      "timestamp": "2025-10-14T11:32:23.128689",
+      "sql_generated": true,
+      "generated_sql": "-- 가장 많이 처방되는 약물 TOP 5를 받은 환자의 평균 연령 계산\nSELECT\n    AVG(YEAR(CURRENT_DATE) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd'))) AS average_age\nFROM (\n    SELECT\n        pd.user_id\n    FROM\n        prescribed_drug pd\n    WHERE\n        pd.deleted = FALSE\n    GROUP BY\n        pd.res_drug_name, pd.user_id\n    ORDER BY\n        COUNT(pd.res_drug_name) DESC\n    LIMIT 5\n) AS top_drugs\nJOIN insured_person ip ON top_drugs.user_id = ip.user_id\nWHERE TRY_TO_DATE(ip.birthday, 'yyyyMMdd') IS NOT NULL",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 1,
+      "execution_time": 7.42,
+      "error_message": null,
+      "feature_matches": [
+        "IN",
+        "SELECT",
+        "ORDER BY",
+        "LIMIT 5",
+        "AVG"
+      ],
+      "feature_match_rate": 0.8333333333333334
+    },
+    {
+      "id": "WF-01",
+      "category": "window_functions",
+      "query": "각 질병별로 환자 수 순위를 매겨줘 (RANK 사용)",
+      "expected_features": [
+        "RANK()",
+        "OVER",
+        "PARTITION BY",
+        "ORDER BY"
+      ],
+      "timestamp": "2025-10-14T11:32:34.117475",
+      "sql_generated": true,
+      "generated_sql": "-- 질병별 환자 수 순위\nSELECT\n    res_disease_name,\n    patient_count,\n    RANK() OVER (ORDER BY patient_count DESC) AS `순위`\nFROM\n    (\n        SELECT\n            res_disease_name,\n            COUNT(DISTINCT user_id) AS patient_count\n        FROM\n            basic_treatment\n        WHERE\n            deleted = FALSE\n        GROUP BY\n            res_disease_name\n    ) AS subquery\nORDER BY\n    `순위`",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 10000,
+      "execution_time": 3.04,
+      "error_message": null,
+      "feature_matches": [
+        "RANK()",
+        "OVER",
+        "ORDER BY"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "WF-02",
+      "category": "window_functions",
+      "query": "지역별 환자 수를 계산하고 전체 환자 대비 비율도 같이 보여줘",
+      "expected_features": [
+        "COUNT",
+        "SUM",
+        "OVER()",
+        "GROUP BY res_city"
+      ],
+      "timestamp": "2025-10-14T11:32:40.355821",
+      "sql_generated": true,
+      "generated_sql": "-- 지역별 환자 수 및 전체 환자 대비 비율 계산\nSELECT\n  SUBSTRING(res_hospital_name, 1, 2) AS `지역`,\n  COUNT(DISTINCT user_id) AS `환자수`,\n  COUNT(DISTINCT user_id) / (SELECT COUNT(DISTINCT user_id) FROM basic_treatment WHERE deleted = FALSE) AS `전체 대비 비율`\nFROM basic_treatment\nWHERE deleted = FALSE\nGROUP BY SUBSTRING(res_hospital_name, 1, 2)\nORDER BY `환자수` DESC\nLIMIT 100",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 100,
+      "execution_time": 2.33,
+      "error_message": null,
+      "feature_matches": [
+        "COUNT"
+      ],
+      "feature_match_rate": 0.25
+    },
+    {
+      "id": "WF-03",
+      "category": "window_functions",
+      "query": "연령대별 환자 수를 계산하고 누적 합계도 표시해줘",
+      "expected_features": [
+        "SUM",
+        "OVER",
+        "ORDER BY",
+        "TO_DATE(birthday"
+      ],
+      "timestamp": "2025-10-14T11:32:46.065206",
+      "sql_generated": true,
+      "generated_sql": "WITH AgeGroupCounts AS (\n  SELECT\n    CASE\n      WHEN YEAR(CURRENT_DATE) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) < 30 THEN '20대 이하'\n      WHEN YEAR(CURRENT_DATE) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) < 40 THEN '30대'\n      WHEN YEAR(CURRENT_DATE) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) < 50 THEN '40대'\n      WHEN YEAR(CURRENT_DATE) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) < 60 THEN '50대'\n      ELSE '60대 이상'\n    END AS `age_group`,\n    COUNT(DISTINCT bt.user_id) AS `patient_count`\n  FROM basic_treatment bt\n  JOIN insured_person ip ON bt.user_id = ip.user_id\n  WHERE bt.deleted = FALSE\n  AND TRY_TO_DATE(ip.birthday, 'yyyyMMdd') IS NOT NULL -- 유효하지 않은 생년월일 제외\n  GROUP BY `age_group`\n)\n\nSELECT\n  `age_group`,\n  `patient_count`,\n  SUM(`patient_count`) OVER (ORDER BY\n    CASE\n      WHEN `age_group` = '20대 이하' THEN 1\n      WHEN `age_group` = '30대' THEN 2\n      WHEN `age_group` = '40대' THEN 3\n      WHEN `age_group` = '50대' THEN 4\n      ELSE 5\n    END\n  ) AS `cumulative_patient_count`\nFROM AgeGroupCounts\nORDER BY\n  CASE\n    WHEN `age_group` = '20대 이하' THEN 1\n    WHEN `age_group` = '30대' THEN 2\n    WHEN `age_group` = '40대' THEN 3\n    WHEN `age_group` = '50대' THEN 4\n    ELSE 5\n  END",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 5,
+      "execution_time": 10.6,
+      "error_message": null,
+      "feature_matches": [
+        "SUM",
+        "OVER",
+        "ORDER BY"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "WF-04",
+      "category": "window_functions",
+      "query": "각 약물의 처방 횟수를 계산하고 상위 10%를 표시해줘",
+      "expected_features": [
+        "PERCENT_RANK()",
+        "OVER",
+        "ORDER BY",
+        "WHERE"
+      ],
+      "timestamp": "2025-10-14T11:33:02.062145",
+      "sql_generated": true,
+      "generated_sql": "-- 약물별 처방 횟수 계산 후 상위 10% 표시\nWITH DrugCounts AS (\n  SELECT\n    res_drug_name,\n    COUNT(*) AS prescription_count,\n    PERCENT_RANK() OVER (ORDER BY COUNT(*) DESC) AS percentile_rank\n  FROM\n    prescribed_drug\n  WHERE\n    deleted = FALSE\n  GROUP BY\n    res_drug_name\n)\nSELECT\n  res_drug_name,\n  prescription_count\nFROM\n  DrugCounts\nWHERE\n  percentile_rank <= 0.1\nORDER BY\n  prescription_count DESC",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 2455,
+      "execution_time": 2.02,
+      "error_message": null,
+      "feature_matches": [
+        "PERCENT_RANK()",
+        "OVER",
+        "ORDER BY",
+        "WHERE"
+      ],
+      "feature_match_rate": 1.0
+    },
+    {
+      "id": "WF-05",
+      "category": "window_functions",
+      "query": "질병별 환자 수와 이전 질병 대비 증감률 계산",
+      "expected_features": [
+        "LAG()",
+        "OVER",
+        "ORDER BY",
+        "COUNT"
+      ],
+      "timestamp": "2025-10-14T11:33:07.389093",
+      "sql_generated": true,
+      "generated_sql": "-- 질병별 환자 수와 이전 질병 대비 증감률 계산\nWITH DiseaseCounts AS (\n    SELECT\n        res_disease_code,\n        COUNT(DISTINCT user_id) AS patient_count\n    FROM\n        basic_treatment\n    WHERE\n        deleted = FALSE\n    GROUP BY\n        res_disease_code\n    ORDER BY\n        res_disease_code\n),\nLaggedDiseaseCounts AS (\n    SELECT\n        res_disease_code,\n        patient_count,\n        LAG(patient_count, 1, 0) OVER (ORDER BY res_disease_code) AS previous_patient_count\n    FROM\n        DiseaseCounts\n)\nSELECT\n    res_disease_code,\n    patient_count,\n    CASE\n        WHEN previous_patient_count = 0 THEN NULL  -- Avoid division by zero\n        ELSE (patient_count - previous_patient_count) * 100.0 / previous_patient_count\n    END AS percentage_change\nFROM\n    LaggedDiseaseCounts\nORDER BY\n    res_disease_code",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 10000,
+      "execution_time": 2.57,
+      "error_message": null,
+      "feature_matches": [
+        "OVER",
+        "ORDER BY",
+        "COUNT"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "CA-01",
+      "category": "complex_aggregations",
+      "query": "성별, 연령대별 환자 수를 교차 집계해줘",
+      "expected_features": [
+        "GROUP BY",
+        "CASE WHEN",
+        "TO_DATE(birthday",
+        "gender"
+      ],
+      "timestamp": "2025-10-14T11:33:13.903764",
+      "sql_generated": true,
+      "generated_sql": "-- 성별, 연령대별 환자 수 교차 집계\nSELECT\n    ip.gender AS `성별`,\n    CASE\n        WHEN YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) < 30 THEN '20대 이하'\n        WHEN YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) < 40 THEN '30대'\n        WHEN YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) < 50 THEN '40대'\n        WHEN YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) < 60 THEN '50대'\n        ELSE '60대 이상'\n    END AS `연령대`,\n    COUNT(DISTINCT bt.user_id) AS `환자수`\nFROM basic_treatment bt\nJOIN insured_person ip ON bt.user_id = ip.user_id\nWHERE bt.deleted = FALSE\nGROUP BY ip.gender, `연령대`\nORDER BY ip.gender, `연령대`",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 15,
+      "execution_time": 11.16,
+      "error_message": null,
+      "feature_matches": [
+        "GROUP BY",
+        "gender"
+      ],
+      "feature_match_rate": 0.5
+    },
+    {
+      "id": "CA-02",
+      "category": "complex_aggregations",
+      "query": "지역별로 가장 많은 질병 TOP 3을 찾아줘",
+      "expected_features": [
+        "GROUP BY",
+        "COUNT",
+        "ORDER BY",
+        "LIMIT"
+      ],
+      "timestamp": "2025-10-14T11:33:29.789371",
+      "sql_generated": true,
+      "generated_sql": "WITH region_disease_counts AS (\n  SELECT\n    CASE\n      WHEN res_hospital_name LIKE '%서울%' THEN '서울'\n      WHEN res_hospital_name LIKE '%경기%' THEN '경기'\n      WHEN res_hospital_name LIKE '%부산%' THEN '부산'\n      WHEN res_hospital_name LIKE '%대구%' THEN '대구'\n      WHEN res_hospital_name LIKE '%인천%' THEN '인천'\n      WHEN res_hospital_name LIKE '%광주%' THEN '광주'\n      WHEN res_hospital_name LIKE '%대전%' THEN '대전'\n      WHEN res_hospital_name LIKE '%울산%' THEN '울산'\n      WHEN res_hospital_name LIKE '%강원%' THEN '강원'\n      WHEN res_hospital_name LIKE '%충북%' THEN '충북'\n      WHEN res_hospital_name LIKE '%충남%' THEN '충남'\n      WHEN res_hospital_name LIKE '%전북%' THEN '전북'\n      WHEN res_hospital_name LIKE '%전남%' THEN '전남'\n      WHEN res_hospital_name LIKE '%경북%' THEN '경북'\n      WHEN res_hospital_name LIKE '%경남%' THEN '경남'\n      WHEN res_hospital_name LIKE '%제주%' THEN '제주'\n      ELSE '기타'\n    END AS region,\n    res_disease_code,\n    COUNT(*) AS disease_count,\n    ROW_NUMBER() OVER (PARTITION BY\n    CASE\n      WHEN res_hospital_name LIKE '%서울%' THEN '서울'\n      WHEN res_hospital_name LIKE '%경기%' THEN '경기'\n      WHEN res_hospital_name LIKE '%부산%' THEN '부산'\n      WHEN res_hospital_name LIKE '%대구%' THEN '대구'\n      WHEN res_hospital_name LIKE '%인천%' THEN '인천'\n      WHEN res_hospital_name LIKE '%광주%' THEN '광주'\n      WHEN res_hospital_name LIKE '%대전%' THEN '대전'\n      WHEN res_hospital_name LIKE '%울산%' THEN '울산'\n      WHEN res_hospital_name LIKE '%강원%' THEN '강원'\n      WHEN res_hospital_name LIKE '%충북%' THEN '충북'\n      WHEN res_hospital_name LIKE '%충남%' THEN '충남'\n      WHEN res_hospital_name LIKE '%전북%' THEN '전북'\n      WHEN res_hospital_name LIKE '%전남%' THEN '전남'\n      WHEN res_hospital_name LIKE '%경북%' THEN '경북'\n      WHEN res_hospital_name LIKE '%경남%' THEN '경남'\n      WHEN res_hospital_name LIKE '%제주%' THEN '제주'\n      ELSE '기타'\n    END ORDER BY COUNT(*) DESC) AS row_num\n  FROM basic_treatment\n  WHERE deleted = FALSE\n  GROUP BY 1, 2\n)\n\nSELECT\n  region,\n  res_disease_code,\n  disease_count\nFROM region_disease_counts\nWHERE row_num <= 3\nORDER BY region, disease_count DESC",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": false,
+      "row_count": null,
+      "execution_time": null,
+      "error_message": null,
+      "feature_matches": [
+        "GROUP BY",
+        "COUNT",
+        "ORDER BY"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "CA-03",
+      "category": "complex_aggregations",
+      "query": "월별 신규 환자 수 추이를 보여줘 (최근 1년)",
+      "expected_features": [
+        "DATE_FORMAT",
+        "TO_DATE",
+        "GROUP BY",
+        "COUNT"
+      ],
+      "timestamp": "2025-10-14T11:33:37.682833",
+      "sql_generated": true,
+      "generated_sql": "-- 월별 신규 환자 수 추이 (최근 1년)\nSELECT\n    DATE_FORMAT(TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd'), 'yyyy-MM') AS `월별`,  -- 월별로 그룹화하기 위해 날짜 형식 변경\n    COUNT(DISTINCT user_id) AS `신규 환자 수`\nFROM\n    basic_treatment\nWHERE\n    deleted = FALSE\n    AND TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE(), 365)\nGROUP BY\n    `월별`\nORDER BY\n    `월별`",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 11,
+      "execution_time": 4.8,
+      "error_message": null,
+      "feature_matches": [
+        "DATE_FORMAT",
+        "TO_DATE",
+        "GROUP BY",
+        "COUNT"
+      ],
+      "feature_match_rate": 1.0
+    },
+    {
+      "id": "CA-04",
+      "category": "complex_aggregations",
+      "query": "약물별 처방 환자의 평균 연령, 중앙값, 표준편차 계산",
+      "expected_features": [
+        "AVG",
+        "PERCENTILE_APPROX",
+        "STDDEV",
+        "GROUP BY"
+      ],
+      "timestamp": "2025-10-14T11:33:46.904980",
+      "sql_generated": true,
+      "generated_sql": "-- 약물별 처방 환자의 평균 연령, 중앙값, 표준 편차 계산\nSELECT\n    pd.res_drug_name,\n    AVG(YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd'))) AS avg_age,\n    PERCENTILE(YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')), 0.5) AS median_age,\n    STDDEV(YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd'))) AS stddev_age\nFROM\n    prescribed_drug pd\nJOIN\n    insured_person ip ON pd.user_id = ip.user_id\nWHERE\n    pd.deleted = FALSE\n    AND ip.birthday IS NOT NULL\nGROUP BY\n    pd.res_drug_name",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 10000,
+      "execution_time": 25.96,
+      "error_message": null,
+      "feature_matches": [
+        "AVG",
+        "STDDEV",
+        "GROUP BY"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "CA-05",
+      "category": "complex_aggregations",
+      "query": "질병별 남녀 비율과 평균 연령을 한 번에 보여줘",
+      "expected_features": [
+        "GROUP BY",
+        "COUNT",
+        "CASE",
+        "AVG",
+        "TO_DATE(birthday"
+      ],
+      "timestamp": "2025-10-14T11:34:17.300763",
+      "sql_generated": true,
+      "generated_sql": "SELECT \n    bt.res_disease_name AS `질병명`, \n    ip.gender AS `성별`, \n    AVG(YEAR(CURRENT_DATE()) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd'))) AS `평균 연령`, \n    COUNT(DISTINCT bt.user_id) AS `환자 수`\nFROM basic_treatment bt\nJOIN insured_person ip ON bt.user_id = ip.user_id\nWHERE bt.deleted = FALSE AND TRY_TO_DATE(ip.birthday, 'yyyyMMdd') IS NOT NULL\nGROUP BY bt.res_disease_name, ip.gender",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 10000,
+      "execution_time": 9.8,
+      "error_message": null,
+      "feature_matches": [
+        "GROUP BY",
+        "COUNT",
+        "AVG"
+      ],
+      "feature_match_rate": 0.6
+    },
+    {
+      "id": "DRQ-01",
+      "category": "date_range_queries",
+      "query": "2023년 1월부터 2023년 12월까지 진료받은 환자 수는?",
+      "expected_features": [
+        "TO_DATE(res_treat_start_date",
+        "BETWEEN",
+        "2023"
+      ],
+      "timestamp": "2025-10-14T11:34:30.308979",
+      "sql_generated": true,
+      "generated_sql": "-- 2023년 1월부터 2023년 12월까지 진료받은 환자 수\nSELECT\n    COUNT(DISTINCT user_id) AS `환자수`\nFROM\n    basic_treatment\nWHERE\n    deleted = FALSE\n    AND TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd') BETWEEN TRY_TO_DATE('20230101', 'yyyyMMdd') AND TRY_TO_DATE('20231231', 'yyyyMMdd')",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 1,
+      "execution_time": 6.59,
+      "error_message": null,
+      "feature_matches": [
+        "TO_DATE(res_treat_start_date",
+        "BETWEEN",
+        "2023"
+      ],
+      "feature_match_rate": 1.0
+    },
+    {
+      "id": "DRQ-02",
+      "category": "date_range_queries",
+      "query": "최근 3개월간 신규 등록된 환자의 질병 분포는?",
+      "expected_features": [
+        "TO_DATE",
+        ">=",
+        "DATE_SUB",
+        "CURRENT_DATE"
+      ],
+      "timestamp": "2025-10-14T11:34:39.711501",
+      "sql_generated": true,
+      "generated_sql": "-- 최근 3개월 신규 등록 환자의 질병 분포\nSELECT\n    res_disease_name,\n    COUNT(DISTINCT user_id) AS `환자수`\nFROM basic_treatment\nWHERE deleted = FALSE\n    AND created_at >= DATE_SUB(CURRENT_DATE(), 90)\nGROUP BY res_disease_name\nORDER BY `환자수` DESC\nLIMIT 100",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 100,
+      "execution_time": 1.44,
+      "error_message": null,
+      "feature_matches": [
+        ">=",
+        "DATE_SUB",
+        "CURRENT_DATE"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "DRQ-03",
+      "category": "date_range_queries",
+      "query": "1980년대 출생 환자 중 고혈압 환자 비율은?",
+      "expected_features": [
+        "TO_DATE(birthday",
+        "BETWEEN",
+        "1980",
+        "1989"
+      ],
+      "timestamp": "2025-10-14T11:34:45.098365",
+      "sql_generated": true,
+      "generated_sql": "-- 1980년대 출생 환자 중 고혈압 환자 비율\nSELECT\n    SUM(CASE WHEN bt.res_disease_code LIKE 'AI1%' THEN 1 ELSE 0 END) * 100.0 / COUNT(DISTINCT ip.user_id) AS hypertension_rate\nFROM insured_person ip\nJOIN basic_treatment bt ON ip.user_id = bt.user_id\nWHERE SUBSTRING(ip.birthday, 1, 4) BETWEEN '1980' AND '1989'\nAND bt.deleted = FALSE",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 1,
+      "execution_time": 1.12,
+      "error_message": null,
+      "feature_matches": [
+        "BETWEEN",
+        "1980",
+        "1989"
+      ],
+      "feature_match_rate": 0.75
+    },
+    {
+      "id": "DRQ-04",
+      "category": "date_range_queries",
+      "query": "각 분기별 진료 환자 수 추이를 보여줘 (2022-2023)",
+      "expected_features": [
+        "QUARTER",
+        "TO_DATE(res_treat_start_date",
+        "GROUP BY"
+      ],
+      "timestamp": "2025-10-14T11:34:49.703540",
+      "sql_generated": true,
+      "generated_sql": "-- 분기별 환자 수 추이\nSELECT\n    concat(year(TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd')), ' Q', quarter(TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd'))) AS `분기`,\n    COUNT(DISTINCT user_id) AS `환자수`\nFROM basic_treatment\nWHERE deleted = FALSE\n  AND TRY_TO_DATE(res_treat_start_date, 'yyyyMMdd') BETWEEN '2022-01-01' AND '2023-12-31'\nGROUP BY `분기`\nORDER BY `분기`",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 8,
+      "execution_time": 12.04,
+      "error_message": null,
+      "feature_matches": [
+        "QUARTER",
+        "TO_DATE(res_treat_start_date",
+        "GROUP BY"
+      ],
+      "feature_match_rate": 1.0
+    },
+    {
+      "id": "DRQ-05",
+      "category": "date_range_queries",
+      "query": "60세 이상 환자 중 최근 6개월간 진료받은 사람은?",
+      "expected_features": [
+        "TO_DATE(birthday",
+        "TO_DATE(res_treat_start_date",
+        "DATE_SUB"
+      ],
+      "timestamp": "2025-10-14T11:35:06.173576",
+      "sql_generated": true,
+      "generated_sql": "-- 60세 이상 환자 중 최근 6개월간 진료받은 환자 수\nSELECT COUNT(DISTINCT bt.user_id) AS `환자수`\nFROM basic_treatment bt\nJOIN insured_person ip ON bt.user_id = ip.user_id\nWHERE bt.deleted = FALSE\nAND YEAR(CURRENT_DATE) - YEAR(TRY_TO_DATE(ip.birthday, 'yyyyMMdd')) >= 60\nAND TRY_TO_DATE(bt.res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE(), 180)",
+      "execution_attempted": true,
+      "executed": true,
+      "execution_success": true,
+      "row_count": 1,
+      "execution_time": 5.41,
+      "error_message": null,
+      "feature_matches": [
+        "DATE_SUB"
+      ],
+      "feature_match_rate": 0.3333333333333333
+    }
+  ]
+}
