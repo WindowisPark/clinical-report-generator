@@ -1,12 +1,13 @@
-"""Clinical Report Query Generator - Main Application Entry Point."""
+"""Clinical Report Query Generator - Main Application with Authentication."""
 
 import streamlit as st
 import os
 import pandas as pd
 
 from config.styles import apply_styles
+from utils.auth import AuthManager, render_signup_page
 
-# --- Page Configuration ---
+# --- Page Configuration (must be first) ---
 st.set_page_config(
     page_title="Clinical Report Generator",
     page_icon="CRG",
@@ -22,17 +23,94 @@ st.set_page_config(
 
         **Powered by**: Google Gemini 2.5 Flash
         **Target Database**: Databricks (Spark SQL)
-
-        © 2025 PharmaCo Data Analytics Team
         """
     }
 )
 
-# Apply global styles
+# Apply styles
 apply_styles()
 
 
-# --- Helper Functions ---
+# --- Authentication ---
+if 'auth_manager' not in st.session_state:
+    st.session_state['auth_manager'] = AuthManager()
+
+auth_manager = st.session_state['auth_manager']
+
+# Show signup page if requested
+if st.session_state.get('show_signup', False):
+    render_signup_page()
+    st.stop()
+
+# Check authentication status before rendering
+authentication_status = st.session_state.get('authentication_status')
+name = st.session_state.get('name')
+username = st.session_state.get('username')
+
+# Not authenticated - show login page
+if not authentication_status:
+    # Login page CSS
+    st.markdown("""
+    <style>
+        .login-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .login-header h1 {
+            color: #0066cc;
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+        .login-header p {
+            color: #666;
+            font-size: 0.95rem;
+        }
+        .signup-section {
+            text-align: center;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #eee;
+        }
+        /* Hide sidebar on login page */
+        [data-testid="stSidebar"] {
+            display: none;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Centered layout
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+
+    with col2:
+        # Header
+        st.markdown("""
+        <div class="login-header">
+            <h1>Clinical Report Generator</h1>
+            <p>AI-Powered SQL Query Generation Platform</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Login form
+        auth_manager.login()
+
+        # Error message
+        if authentication_status == False:
+            st.error('Username or password is incorrect.')
+
+        # Signup link
+        st.markdown("<div class='signup-section'>", unsafe_allow_html=True)
+        st.markdown("Don't have an account?")
+        if st.button("Create Account", use_container_width=True, type="secondary"):
+            st.session_state['show_signup'] = True
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.stop()
+
+
+# --- Authenticated User Content ---
+
+# Helper function
 @st.cache_data
 def load_data_dictionary():
     """Load the Databricks schema dictionary."""
@@ -52,16 +130,23 @@ def load_data_dictionary():
 st.markdown("""
 <div class="main-header">
     <h1>Clinical Report Query Generator</h1>
-    <p>AI-powered SQL generation for pharmaceutical data analysis | Powered by Gemini 2.5 Flash</p>
+    <p>AI-powered SQL generation for pharmaceutical data analysis</p>
 </div>
 """, unsafe_allow_html=True)
 
 
 # --- Sidebar ---
 with st.sidebar:
+    st.markdown(f"### {name}")
+    st.caption(f"@{username}")
+
+    if st.button("Logout", use_container_width=True):
+        auth_manager.logout()
+        st.rerun()
+
+    st.markdown("---")
     st.markdown("### Navigation")
     st.markdown("""
-    Use the sidebar to navigate between pages:
     - **Disease Pipeline**: 질환 기반 자동 분석
     - **NL2SQL**: 자연어 SQL 변환
     - **Schema Chatbot**: DB 스키마 Q&A
@@ -72,17 +157,16 @@ with st.sidebar:
     st.markdown("### System Status")
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("**API**: Online")
+        st.markdown('<span class="status-online">API: Online</span>', unsafe_allow_html=True)
     with col2:
-        st.markdown("**DB**: Online")
+        st.markdown('<span class="status-online">DB: Online</span>', unsafe_allow_html=True)
 
 
-# --- Main Content (Home Page) ---
+# --- Main Content ---
 st.markdown('<div class="welcome-box">', unsafe_allow_html=True)
-st.markdown("### Clinical Report Query Generator")
+st.markdown(f"### Welcome, {name}")
 st.markdown("""
-이 도구는 **자연어**로 **SQL 쿼리**를 자동 생성하여 임상 데이터 분석을 간소화합니다.
-SQL 경험이 없어도 누구나 사용할 수 있습니다.
+**자연어**로 **SQL 쿼리**를 자동 생성하여 임상 데이터 분석을 간소화합니다.
 """)
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -91,56 +175,47 @@ col1, col2 = st.columns(2)
 with col1:
     st.markdown("""
     ### Disease Pipeline Analysis
-    **추천 대상**: SQL 초보자, 표준 분석 필요 시
-
-    **특징**:
-    - 질환명만 입력하면 자동 분석
+    질환명만 입력하면 자동 분석
     - 4개 핵심 분석 즉시 실행
     - AI가 7개 추가 분석 추천
 
     ---
 
     ### Schema Chatbot
-    **추천 대상**: 스키마 구조 이해 필요 시
-
-    **특징**:
-    - 대화형 스키마 질문/답변
+    대화형 스키마 질문/답변
     - 테이블 관계 자동 설명
     - 예시 SQL 자동 생성
     """)
 
 with col2:
     st.markdown("""
-    ### Natural Language SQL Generation
-    **추천 대상**: 유연한 쿼리 필요, SQL 이해 가능
-
-    **특징**:
-    - 자유로운 자연어 질문
+    ### Natural Language SQL
+    자유로운 자연어 질문
     - 맞춤형 SQL 생성
     - Databricks 호환성 자동 검증
 
     **예시 질문**:
-    - "서울 3차 병원 고혈압 환자 연령대별 분포는?"
-    - "최근 1년 당뇨병 처방 약물 TOP 10은?"
+    - "고혈압 환자 연령대별 분포"
+    - "당뇨병 처방 약물 TOP 10"
     """)
 
 st.markdown("---")
 
-# Quick navigation buttons
+# Quick navigation
 st.markdown("### Quick Start")
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.page_link("pages/1_Disease_Pipeline.py", label="Disease Pipeline", icon=None)
+    st.page_link("pages/1_Disease_Pipeline.py", label="Disease Pipeline")
 with col2:
-    st.page_link("pages/2_NL2SQL.py", label="NL2SQL", icon=None)
+    st.page_link("pages/2_NL2SQL.py", label="NL2SQL")
 with col3:
-    st.page_link("pages/3_Schema_Chatbot.py", label="Schema Chatbot", icon=None)
+    st.page_link("pages/3_Schema_Chatbot.py", label="Schema Chatbot")
 with col4:
-    st.page_link("pages/4_Monitoring.py", label="Monitoring", icon=None)
+    st.page_link("pages/4_Monitoring.py", label="Monitoring")
 
 
-# --- Data Dictionary Section ---
+# --- Schema Reference ---
 st.markdown("---")
 with st.expander("Database Schema Reference", expanded=False):
     data_dictionary = load_data_dictionary()
@@ -168,4 +243,7 @@ with st.expander("Database Schema Reference", expanded=False):
         total_tables = data_dictionary['table_name'].nunique() if 'table_name' in data_dictionary.columns else "N/A"
         st.caption(f"Total: {total_cols} columns | {total_tables} tables")
     else:
-        st.warning("Schema file not found: databricks_schema_for_rag.csv")
+        st.warning("Schema file not found.")
+
+# Log usage
+auth_manager.log_usage(username, 'view_home')

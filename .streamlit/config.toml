@@ -1,0 +1,23 @@
+[theme]
+# Light theme base
+base = "light"
+
+# Primary color for interactive elements (buttons, links, etc.)
+primaryColor = "#0066cc"
+
+# Background colors
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8f9fa"
+
+# Text color
+textColor = "#1a1a2e"
+
+# Font
+font = "sans serif"
+
+[server]
+headless = true
+port = 8501
+
+[browser]
+gatherUsageStats = false

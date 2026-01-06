@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.styles import apply_styles
-from features.nl2sql_tab import NL2SQLTab
+from components.common import require_auth
 
 st.set_page_config(
     page_title="NL2SQL | Clinical Report Generator",
@@ -18,11 +18,15 @@ st.set_page_config(
 
 apply_styles()
 
+# Auth check
+username = require_auth()
+
 st.markdown("## Natural Language to SQL")
 st.markdown("자연어 질의를 SQL로 변환")
 st.markdown("---")
 
 try:
+    from features.nl2sql_tab import NL2SQLTab
     nl2sql_tab = NL2SQLTab()
     nl2sql_tab.render()
 except ImportError as e:

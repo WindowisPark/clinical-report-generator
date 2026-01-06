@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.styles import apply_styles
-from features.schema_chatbot_tab import SchemaChatbotTab
+from components.common import require_auth
 
 st.set_page_config(
     page_title="Schema Chatbot | Clinical Report Generator",
@@ -18,11 +18,15 @@ st.set_page_config(
 
 apply_styles()
 
+# Auth check
+username = require_auth()
+
 st.markdown("## Schema Chatbot")
 st.markdown("DB 스키마 관련 질문에 대한 대화형 Q&A")
 st.markdown("---")
 
 try:
+    from features.schema_chatbot_tab import SchemaChatbotTab
     chatbot_tab = SchemaChatbotTab()
     chatbot_tab.render()
 except ImportError as e:

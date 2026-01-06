@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.styles import apply_styles
-from features.monitoring_tab import MonitoringTab
+from components.common import require_auth
 
 st.set_page_config(
     page_title="Monitoring | Clinical Report Generator",
@@ -18,11 +18,15 @@ st.set_page_config(
 
 apply_styles()
 
+# Auth check
+username = require_auth()
+
 st.markdown("## Monitoring Dashboard")
 st.markdown("시스템 상태 및 사용량 모니터링")
 st.markdown("---")
 
 try:
+    from features.monitoring_tab import MonitoringTab
     monitoring_tab = MonitoringTab()
     monitoring_tab.render()
 except ImportError as e:

@@ -332,85 +332,86 @@ class DatabricksTokenValidator:
 
 
 def render_signup_page():
-    """회원가입 페이지 렌더링"""
-    st.markdown("### 📝 회원가입")
-    st.markdown("---")
-
-    with st.form("signup_form"):
-        username = st.text_input("사용자 ID", help="로그인에 사용할 ID")
-        name = st.text_input("이름", help="실명을 입력하세요")
-        email = st.text_input("이메일", help="이메일 주소")
-        password = st.text_input("비밀번호", type="password")
-        password_confirm = st.text_input("비밀번호 확인", type="password")
-
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            submit = st.form_submit_button("✅ 가입하기", type="primary", use_container_width=True)
-        with col2:
-            cancel = st.form_submit_button("❌ 취소", use_container_width=True)
-
-        if cancel:
-            st.session_state['show_signup'] = False
-            st.rerun()
-
-        if submit:
-            # 입력 검증
-            if not all([username, name, email, password]):
-                st.error("❌ 모든 필드를 입력해주세요.")
-                return
-
-            if password != password_confirm:
-                st.error("❌ 비밀번호가 일치하지 않습니다.")
-                return
-
-            if len(password) < 6:
-                st.error("❌ 비밀번호는 최소 6자 이상이어야 합니다.")
-                return
-
-            # 회원가입 시도
-            auth_manager = st.session_state.get('auth_manager')
-            if auth_manager:
-                result = auth_manager.register_user(username, name, email, password)
-
-                if result['success']:
-                    st.success(result['message'])
-                    st.info("🔄 3초 후 로그인 페이지로 이동합니다...")
-                    import time
-                    time.sleep(3)
-                    st.session_state['show_signup'] = False
-                    st.rerun()
-                else:
-                    st.error(result['message'])
-
-
-def render_login_page():
-    """로그인 페이지 렌더링 (헤더 및 회원가입 버튼)"""
+    """회원가입 페이지 렌더링 (중앙 정렬)"""
+    # CSS
     st.markdown("""
     <style>
-        .login-header {
+        .signup-header {
             text-align: center;
-            padding: 2rem 0;
-            background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            border-radius: 10px;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
+        }
+        .signup-header h2 {
+            color: #0066cc;
+            font-size: 1.5rem;
+            margin-bottom: 0.3rem;
+        }
+        .signup-header p {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        /* Hide sidebar */
+        [data-testid="stSidebar"] {
+            display: none;
         }
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="login-header">
-        <h1>🏥 Clinical Report Generator</h1>
-        <p>AI-Powered SQL Query Generation Platform</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Centered layout
+    col1, col2, col3 = st.columns([1, 1.5, 1])
 
-    # 회원가입 버튼
-    col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        if st.button("📝 회원가입", use_container_width=True):
-            st.session_state['show_signup'] = True
-            st.rerun()
+        st.markdown("""
+        <div class="signup-header">
+            <h2>Create Account</h2>
+            <p>Join Clinical Report Generator</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("signup_form"):
+            username = st.text_input("Username", help="Login ID")
+            name = st.text_input("Full Name")
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            password_confirm = st.text_input("Confirm Password", type="password")
+
+            col_a, col_b = st.columns([1, 1])
+            with col_a:
+                submit = st.form_submit_button("Sign Up", type="primary", use_container_width=True)
+            with col_b:
+                cancel = st.form_submit_button("Cancel", use_container_width=True)
+
+            if cancel:
+                st.session_state['show_signup'] = False
+                st.rerun()
+
+            if submit:
+                # Validation
+                if not all([username, name, email, password]):
+                    st.error("Please fill in all fields.")
+                    return
+
+                if password != password_confirm:
+                    st.error("Passwords do not match.")
+                    return
+
+                if len(password) < 6:
+                    st.error("Password must be at least 6 characters.")
+                    return
+
+                # Register
+                auth_manager = st.session_state.get('auth_manager')
+                if auth_manager:
+                    result = auth_manager.register_user(username, name, email, password)
+
+                    if result['success']:
+                        st.success(f"Account created! Welcome, {name}.")
+                        st.info("Redirecting to login...")
+                        import time
+                        time.sleep(2)
+                        st.session_state['show_signup'] = False
+                        st.rerun()
+                    else:
+                        st.error(result['message'])
 
 
 def render_token_input_page(username: str):
