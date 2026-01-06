@@ -1,0 +1,40 @@
+# 레시피 고유 이름
+name: extract_patients_by_region_hospital
+
+# 레시피 설명
+description: "특정 지역과 병원급별 조건에 맞는 환자 리스트를 추출하여 지역 기반 코호트를 구성합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "지역별"
+  - "병원급별"
+  - "regional cohort"
+  - "hospital tier"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "region_keyword"
+    type: "string"
+    description: "조회할 지역 키워드 (예: 서울, 경기, 부산)"
+    required: true
+  - name: "hospital_tier"
+    type: "string"
+    description: "병원급 (3차, 2차, 1차)"
+    required: true
+  - name: "min_visits"
+    type: "integer"
+    description: "최소 방문 횟수 (예: 2)"
+    required: true
+    default: 2
+  - name: "start_date"
+    type: "date"
+    description: "방문 이력 조회 시작일 (YYYY-MM-DD)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "지역/병원급별 환자 리스트"

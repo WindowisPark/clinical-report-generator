@@ -1,0 +1,40 @@
+# 레시피 고유 이름
+name: extract_patients_by_diagnosis_period
+
+# 레시피 설명
+description: "특정 질환의 진단 기간을 기준으로 신규환자와 기존환자를 구분하여 추출합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "진단기간별"
+  - "신규 기존환자"
+  - "diagnosis period"
+  - "new vs existing"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "조회할 질환명 키워드 (예: 당뇨, 고혈압)"
+    required: true
+  - name: "cutoff_date"
+    type: "date"
+    description: "신규/기존 환자 구분 기준일 (YYYY-MM-DD)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "진료 이력 조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_visits"
+    type: "integer"
+    description: "최소 방문 횟수 (예: 2)"
+    required: true
+    default: 2
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "신규/기존 환자 리스트"

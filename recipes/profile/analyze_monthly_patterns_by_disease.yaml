@@ -1,0 +1,38 @@
+# 레시피 고유 이름
+name: analyze_monthly_patterns_by_disease
+
+# 레시피 설명
+description: "특정 질환의 월별 발생 패턴을 분석합니다. 월별 환자 수, 치료 횟수, 평균 비용을 집계하여 시간적 트렌드를 파악할 수 있습니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "월별 분석"
+  - "시간 트렌드"
+  - "유행성"
+  - "Monthly Analysis"
+  - "Temporal Pattern"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "line_chart"
+  x_column: "year_month"
+  y_column: "unique_patients"
+  title: "월별 환자 수 추이"

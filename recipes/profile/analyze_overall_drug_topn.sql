@@ -1,0 +1,46 @@
+-- 특정 질환에서 처방되는 약물 TOP N (처방량 기준)
+-- 파라미터: disease_keyword = {{ disease_keyword }}, min_patients = {{ min_patients }}, top_n = {{ top_n }}
+
+WITH disease_patients AS (
+  SELECT DISTINCT user_id
+  FROM basic_treatment
+  WHERE deleted = FALSE
+    AND LOWER(res_disease_name) LIKE LOWER('%{{ disease_keyword }}%')
+    AND res_treat_start_date >= '{{ start_date }}'
+    AND res_treat_start_date <= '{{ end_date }}'
+),
+disease_prescriptions AS (
+  SELECT
+    pd.res_ingredients as drug_ingredient,
+    pd.user_id,
+    pd.res_treat_start_date,
+    bt.res_disease_name
+  FROM prescribed_drug pd
+  INNER JOIN disease_patients dp ON pd.user_id = dp.user_id
+  LEFT JOIN basic_treatment bt ON pd.user_id = bt.user_id AND pd.res_treat_start_date = bt.res_treat_start_date
+  WHERE pd.deleted = FALSE
+    AND pd.res_treat_start_date >= '{{ start_date }}'
+    AND pd.res_treat_start_date <= '{{ end_date }}'
+    AND pd.res_ingredients IS NOT NULL
+),
+drug_stats AS (
+  SELECT
+    drug_ingredient,
+    COUNT(DISTINCT user_id) as unique_patients,
+    COUNT(DISTINCT res_treat_start_date) as total_prescriptions,
+    COUNT(DISTINCT res_disease_name) as indicated_diseases,
+    COLLECT_SET(res_disease_name) as all_diseases
+  FROM disease_prescriptions
+  GROUP BY drug_ingredient
+)
+SELECT
+  drug_ingredient,
+  unique_patients,
+  total_prescriptions,
+  indicated_diseases,
+  all_diseases,
+  ROUND(unique_patients * 100.0 / (SELECT COUNT(DISTINCT user_id) FROM disease_patients), 2) as prescription_rate_pct
+FROM drug_stats
+WHERE unique_patients >= {{ min_patients | default(10) }}
+ORDER BY unique_patients DESC, total_prescriptions DESC
+LIMIT {{ top_n | default(10) }};

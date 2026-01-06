@@ -1,0 +1,30 @@
+# 레시피 고유 이름
+name: analyze_visits_by_hospital_tier
+
+# 레시피 설명
+description: "특정 질환을 가진 환자들이 1차, 2차, 3차 병원 중 어느 유형의 병원을 주로 방문하는지 분석합니다. 병원 유형별 총 방문 수와 유니크 환자 수를 집계합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "병원 분석"
+  - "병원 유형"
+  - "1차병원"
+  - "2차병원"
+  - "3차병원"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드 (예: 쉐그렌, 루푸스)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "hospital_type"
+  y_column: "total_visits"
+  title: "병원 유형별 방문 현황"

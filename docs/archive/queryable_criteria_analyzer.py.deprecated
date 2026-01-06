@@ -1,0 +1,447 @@
+"""
+임상시험 선정/제외 기준에서 쿼리 검증 가능성 분석 시스템 (LLM 기반)
+"""
+
+import pandas as pd
+import os
+import json
+import re
+import yaml
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass
+from enum import Enum
+import google.generativeai as genai
+
+
+class QueryabilityLevel(Enum):
+    """쿼리 검증 가능성 수준"""
+    HIGH = "HIGH"        # 80%+ 검증가능
+    MEDIUM = "MEDIUM"    # 40-80% 검증가능
+    LOW = "LOW"          # 40% 미만
+
+
+@dataclass
+class QueryableCriteriaResult:
+    """쿼리 가능성 분석 결과"""
+    original_text: str                    # 원본 기준 텍스트
+    overall_queryability: QueryabilityLevel  # 전체 쿼리 가능성
+    queryable_parts: List[str]           # 쿼리로 검증 가능한 부분들
+    non_queryable_parts: List[str]       # 쿼리로 검증 불가능한 부분들
+    required_tables: List[str]           # 필요한 데이터브릭스 테이블들
+    suggested_query_approach: str        # 제안된 쿼리 접근법
+    recommended_recipes: List[str]       # 활용 가능한 기존 레시피들
+    data_limitations: List[str]          # 데이터 제약사항들
+    confidence_score: float              # LLM 분석 신뢰도 (0-1)
+    practical_notes: str                 # 실무진을 위한 추가 고려사항
+
+
+class QueryableCriteriaAnalyzer:
+    """임상시험 기준의 데이터브릭스 쿼리 검증 가능성 분석기 (LLM 기반)"""
+
+    def __init__(self):
+        self.llm_model = None
+        self._setup_llm()
+        self.databricks_context = self._create_databricks_context()
+
+    def _setup_llm(self):
+        """LLM 설정"""
+        try:
+            # 1. 환경변수에서 API 키 확인
+            api_key = os.getenv('GEMINI_API_KEY')
+
+            # 2. config.yaml에서 API 키 확인 (환경변수가 없으면)
+            if not api_key:
+                try:
+                    config_path = "config.yaml"
+                    if os.path.exists(config_path):
+                        with open(config_path, "r", encoding="utf-8") as f:
+                            config = yaml.safe_load(f)
+                            api_key = config.get("api_keys", {}).get("gemini_api_key")
+                except Exception as e:
+                    print(f"⚠️ config.yaml 읽기 실패: {e}")
+
+            if api_key and api_key != "YOUR_GEMINI_API_KEY_HERE":
+                genai.configure(api_key=api_key)
+                self.llm_model = genai.GenerativeModel('gemini-2.5-flash')
+                print("✅ LLM (Gemini) 설정 완료 (gemini-2.5-flash)")
+            else:
+                print("⚠️ GEMINI_API_KEY가 설정되지 않음")
+                raise Exception("LLM API 키 필요")
+        except Exception as e:
+            print(f"⚠️ LLM 설정 실패: {e}")
+            raise
+
+    def _create_databricks_context(self) -> str:
+        """데이터브릭스 스키마 컨텍스트 생성"""
+
+        context = """
+# 데이터브릭스 헬스케어 데이터베이스 스키마 정보
+
+## 🏥 주요 테이블 및 활용 가능 데이터
+
+### 1. 환자 기본 정보
+- **user**: 사용자 기본정보 (가입일, 기본 설정)
+- **insured_person**: 피보험자 정보 (생년월일, 성별, 가족관계)
+
+### 2. 진료 및 치료 기록
+- **basic_treatment**: 기본 진료 기록
+  * res_disease_name: 진단명/질환명
+  * res_hospital_name: 병원명
+  * res_treat_start_date: 치료 시작일
+  * res_hospital_code: 병원 코드
+
+- **detail_treatment**: 상세 진료/시술 기록
+  * 의료 행위, 처치, 수술 등의 상세 정보
+
+### 3. 처방 및 약물
+- **prescribed_drug**: 처방 약물 기록
+  * res_drug_name: 약물명
+  * res_ingredients: 성분명
+  * res_total_dosing_days: 총 투약일수
+  * res_treat_start_date: 처방일
+
+### 4. 병원 및 의료기관
+- **hospital**: 병원 정보
+  * name: 병원명
+  * medical_facility_type_code: 의료기관 종류
+  * sido_name: 지역 정보
+
+### 5. 의료비 및 보험
+- **medical_expenses_detail_history**: 의료비 상세 내역
+- **insurance_payment**: 보험 지급 정보
+
+### 6. 건강검진
+- **nhis_health_checkup_result**: 국민건강보험 건강검진 결과
+  * 신체 측정, 혈액검사, 소변검사 등의 실제 검사 결과값 포함 가능
+
+## 🔍 쿼리 검증 가능성 판단 기준
+
+### ✅ HIGH (80%+ 검증가능)
+- 연령, 성별 (insured_person.birthday, gender)
+- 진단/질환 이력 (basic_treatment.res_disease_name)
+- 처방 약물 이력 (prescribed_drug.res_drug_name, res_ingredients)
+- 병원 방문 이력 (basic_treatment)
+- 치료 기간/날짜 (res_treat_start_date)
+
+### 🔶 MEDIUM (40-80% 검증가능)
+- 건강검진 수치 (nhis_health_checkup_result) - 데이터 존재시
+- 의료비 지출 패턴 (medical_expenses_detail_history)
+- 특정 시술/수술 이력 (detail_treatment)
+
+### ❌ LOW (40% 미만)
+- 실시간 바이탈 사인 (혈압, 맥박 등)
+- 생활습관 (흡연, 음주, 운동)
+- 주관적 증상이나 환자 상태
+- 의료진의 임상적 판단이 필요한 항목
+- 연구 참여 의지, 동의 능력 등
+
+## 💡 권장 쿼리 접근법
+1. **환자 풀 스크리닝**: basic_treatment + insured_person JOIN
+2. **약물 기준 검증**: prescribed_drug 테이블 활용
+3. **시간적 기준**: res_treat_start_date 기반 필터링
+4. **지역/병원 기준**: hospital 테이블과 JOIN
+
+## 🔧 활용 가능한 기존 레시피들
+- screen_patients_by_clinical_criteria: 임상 기준 환자 스크리닝
+- analyze_screened_patient_count: 스크리닝된 환자 수 집계
+- analyze_screened_gender_distribution: 성별 분포 분석
+- analyze_screened_regional_distribution: 지역 분포 분석
+- get_top_prescribed_ingredients_by_disease: 질환별 처방 약물
+- analyze_medication_adherence_mpr: 복약순응도 분석
+- extract_patients_by_age_gender: 연령/성별 환자 추출
+- extract_patients_by_medication_history: 약물 이력 환자 추출
+- extract_patients_by_diagnosis_period: 진단 기간 환자 추출
+"""
+        return context
+
+    def analyze_single_criteria(self, criteria_text: str, trial_name: str = "") -> QueryableCriteriaResult:
+        """단일 임상시험 기준의 쿼리 가능성 분석"""
+
+        print(f"🔍 임상시험 기준 분석 중: {criteria_text[:50]}...")
+
+        if not self.llm_model:
+            raise Exception("LLM 모델이 설정되지 않았습니다")
+
+        prompt = f"""
+{self.databricks_context}
+
+당신은 헬스케어 데이터 분석 전문가입니다.
+위의 데이터브릭스 스키마를 참고하여 다음 임상시험 기준이 쿼리로 검증 가능한지 분석해주세요.
+
+## 📋 분석 대상
+**임상시험명**: {trial_name}
+**기준 내용**: {criteria_text}
+
+## 📊 요청 분석 내용
+
+1. **쿼리 검증 가능성 분류**:
+   - HIGH (80%+ 검증가능): 데이터브릭스로 정확히 확인 가능
+   - MEDIUM (40-80% 검증가능): 부분적으로만 확인 가능
+   - LOW (40% 미만): 현재 데이터로는 검증 어려움
+
+2. **구체적 분석**:
+   - 어떤 테이블/컬럼을 사용해야 하는지
+   - 예상 쿼리 접근법
+   - 데이터 제약사항이나 한계점
+
+3. **실행 가능한 레시피 추천**:
+   - 기존 레시피 중 활용 가능한 것들
+   - 새로 필요한 쿼리 로직
+
+다음 JSON 형태로 정확히 응답해주세요:
+{{
+    "overall_queryability": "HIGH|MEDIUM|LOW",
+    "queryable_parts": ["검증 가능한 구체적 부분들"],
+    "non_queryable_parts": ["검증 어려운 부분들과 이유"],
+    "required_tables": ["필요한 테이블명들"],
+    "suggested_query_approach": "구체적인 쿼리 접근 방법",
+    "recommended_recipes": ["활용 가능한 기존 레시피들"],
+    "data_limitations": ["데이터 제약사항들"],
+    "confidence_score": 0.85,
+    "practical_notes": "실무진을 위한 추가 고려사항"
+}}
+"""
+
+        try:
+            response = self.llm_model.generate_content(prompt)
+            result_data = self._parse_llm_response(response.text)
+
+            return QueryableCriteriaResult(
+                original_text=criteria_text,
+                overall_queryability=QueryabilityLevel(result_data.get("overall_queryability", "LOW")),
+                queryable_parts=result_data.get("queryable_parts", []),
+                non_queryable_parts=result_data.get("non_queryable_parts", []),
+                required_tables=result_data.get("required_tables", []),
+                suggested_query_approach=result_data.get("suggested_query_approach", ""),
+                recommended_recipes=result_data.get("recommended_recipes", []),
+                data_limitations=result_data.get("data_limitations", []),
+                confidence_score=float(result_data.get("confidence_score", 0.5)),
+                practical_notes=result_data.get("practical_notes", "")
+            )
+
+        except Exception as e:
+            print(f"    ⚠️ LLM 분석 실패: {e}")
+            # 백업으로 기본 결과 반환
+            return QueryableCriteriaResult(
+                original_text=criteria_text,
+                overall_queryability=QueryabilityLevel.LOW,
+                queryable_parts=[],
+                non_queryable_parts=["LLM 분석 실패로 인한 미분류"],
+                required_tables=[],
+                suggested_query_approach="수동 검토 필요",
+                recommended_recipes=[],
+                data_limitations=["LLM 분석 오류"],
+                confidence_score=0.0,
+                practical_notes="수동으로 재검토 필요"
+            )
+
+    def analyze_trial_criteria(self, trial_name: str, inclusion_criteria: str, exclusion_criteria: str) -> Dict[str, Any]:
+        """임상시험 전체 기준 분석 (선정/제외 기준)"""
+
+        print(f"\n🏥 임상시험 기준 종합 분석: {trial_name}")
+        print("=" * 60)
+
+        # 선정 기준을 줄별로 분석
+        inclusion_lines = [line.strip() for line in inclusion_criteria.strip().split('\n')
+                          if line.strip() and not line.strip().startswith(('#', '//', '-', '•'))]
+
+        # 제외 기준을 줄별로 분석
+        exclusion_lines = [line.strip() for line in exclusion_criteria.strip().split('\n')
+                          if line.strip() and not line.strip().startswith(('#', '//', '-', '•'))]
+
+        print(f"📋 선정 기준 {len(inclusion_lines)}개 분석 중...")
+        inclusion_results = []
+        for i, line in enumerate(inclusion_lines, 1):
+            print(f"  {i}. {line[:80]}...")
+            result = self.analyze_single_criteria(line, trial_name)
+            inclusion_results.append(result)
+
+        print(f"\n🚫 제외 기준 {len(exclusion_lines)}개 분석 중...")
+        exclusion_results = []
+        for i, line in enumerate(exclusion_lines, 1):
+            print(f"  {i}. {line[:80]}...")
+            result = self.analyze_single_criteria(line, trial_name)
+            exclusion_results.append(result)
+
+        # 전체 요약 통계
+        all_results = inclusion_results + exclusion_results
+        total_criteria = len(all_results)
+
+        queryability_counts = {
+            QueryabilityLevel.HIGH: sum(1 for r in all_results if r.overall_queryability == QueryabilityLevel.HIGH),
+            QueryabilityLevel.MEDIUM: sum(1 for r in all_results if r.overall_queryability == QueryabilityLevel.MEDIUM),
+            QueryabilityLevel.LOW: sum(1 for r in all_results if r.overall_queryability == QueryabilityLevel.LOW)
+        }
+
+        # 전체 쿼리 가능 비율 (HIGH + MEDIUM)
+        queryable_count = queryability_counts[QueryabilityLevel.HIGH] + queryability_counts[QueryabilityLevel.MEDIUM]
+        queryability_ratio = queryable_count / total_criteria if total_criteria > 0 else 0
+
+        # 모든 테이블과 레시피 수집
+        all_tables = set()
+        all_recipes = set()
+        for result in all_results:
+            all_tables.update(result.required_tables)
+            all_recipes.update(result.recommended_recipes)
+
+        analysis_summary = {
+            "trial_name": trial_name,
+            "total_criteria_count": total_criteria,
+            "queryability_distribution": {
+                "HIGH": queryability_counts[QueryabilityLevel.HIGH],
+                "MEDIUM": queryability_counts[QueryabilityLevel.MEDIUM],
+                "LOW": queryability_counts[QueryabilityLevel.LOW]
+            },
+            "overall_queryability_ratio": queryability_ratio,
+            "inclusion_analysis": inclusion_results,
+            "exclusion_analysis": exclusion_results,
+            "required_databricks_tables": list(all_tables),
+            "recommended_recipes": list(all_recipes),
+            "analysis_summary": self._generate_analysis_summary(all_results)
+        }
+
+        return analysis_summary
+
+    def _parse_llm_response(self, response_text: str) -> Dict[str, Any]:
+        """LLM 응답 파싱"""
+        try:
+            # JSON 블록 찾기
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                return json.loads(json_str)
+            else:
+                print(f"⚠️ JSON 형태를 찾을 수 없음: {response_text[:200]}...")
+                return {}
+        except json.JSONDecodeError as e:
+            print(f"⚠️ JSON 파싱 오류: {e}")
+            return {}
+        except Exception as e:
+            print(f"⚠️ 응답 파싱 오류: {e}")
+            return {}
+
+    def _generate_analysis_summary(self, all_results: List[QueryableCriteriaResult]) -> Dict[str, Any]:
+        """분석 결과 요약 생성"""
+
+        # 가장 많이 사용되는 테이블들
+        table_counts = {}
+        for result in all_results:
+            for table in result.required_tables:
+                table_counts[table] = table_counts.get(table, 0) + 1
+
+        # 가장 많이 추천되는 레시피들
+        recipe_counts = {}
+        for result in all_results:
+            for recipe in result.recommended_recipes:
+                recipe_counts[recipe] = recipe_counts.get(recipe, 0) + 1
+
+        # 공통 데이터 제약사항들
+        limitation_counts = {}
+        for result in all_results:
+            for limitation in result.data_limitations:
+                limitation_counts[limitation] = limitation_counts.get(limitation, 0) + 1
+
+        return {
+            "most_used_tables": sorted(table_counts.items(), key=lambda x: x[1], reverse=True)[:5],
+            "most_recommended_recipes": sorted(recipe_counts.items(), key=lambda x: x[1], reverse=True)[:5],
+            "common_limitations": sorted(limitation_counts.items(), key=lambda x: x[1], reverse=True)[:5],
+            "average_confidence": sum(r.confidence_score for r in all_results) / len(all_results) if all_results else 0
+        }
+
+    def generate_report(self, analysis_result: Dict[str, Any]) -> str:
+        """분석 결과 보고서 생성"""
+
+        report = f"""
+🏥 임상시험 기준 쿼리 검증 가능성 분석 보고서
+====================================================
+
+📋 임상시험명: {analysis_result['trial_name']}
+
+📊 전체 요약:
+- 총 기준 수: {analysis_result['total_criteria_count']}개
+- 쿼리 검증 가능률: {analysis_result['overall_queryability_ratio']:.1%}
+
+📈 검증 가능성 분포:
+- HIGH (80%+ 검증가능): {analysis_result['queryability_distribution']['HIGH']}개
+- MEDIUM (40-80% 검증가능): {analysis_result['queryability_distribution']['MEDIUM']}개
+- LOW (40% 미만): {analysis_result['queryability_distribution']['LOW']}개
+
+💽 필요한 데이터브릭스 테이블:
+"""
+        for table in analysis_result['required_databricks_tables']:
+            report += f"• {table}\n"
+
+        report += f"\n🔧 권장 레시피:"
+        for recipe in analysis_result['recommended_recipes']:
+            report += f"\n• {recipe}"
+
+        report += f"\n\n✅ 쿼리 검증 가능한 기준들:\n"
+
+        high_medium_criteria = [c for c in analysis_result['inclusion_analysis'] + analysis_result['exclusion_analysis']
+                               if c.overall_queryability in [QueryabilityLevel.HIGH, QueryabilityLevel.MEDIUM]]
+
+        for i, criteria in enumerate(high_medium_criteria, 1):
+            report += f"\n{i}. [{criteria.overall_queryability.value}] {criteria.original_text[:80]}..."
+            if criteria.queryable_parts:
+                report += f"\n   ✓ 검증가능: {', '.join(criteria.queryable_parts[:2])}..."
+
+        report += f"\n\n🚫 쿼리 검증 어려운 기준들:\n"
+
+        low_criteria = [c for c in analysis_result['inclusion_analysis'] + analysis_result['exclusion_analysis']
+                       if c.overall_queryability == QueryabilityLevel.LOW]
+
+        for i, criteria in enumerate(low_criteria, 1):
+            report += f"\n{i}. {criteria.original_text[:80]}..."
+            if criteria.non_queryable_parts:
+                report += f"\n   ✗ 제약사항: {', '.join(criteria.non_queryable_parts[:1])}"
+
+        report += f"\n\n💡 실무 권장사항:"
+        if analysis_result['overall_queryability_ratio'] >= 0.7:
+            report += f"\n• 높은 검증 가능률로 데이터 기반 스크리닝에 적합"
+        elif analysis_result['overall_queryability_ratio'] >= 0.4:
+            report += f"\n• 부분적 검증 가능, 수동 검토와 병행 권장"
+        else:
+            report += f"\n• 낮은 검증 가능률, 수동 스크리닝 우선 고려"
+
+        avg_confidence = analysis_result['analysis_summary']['average_confidence']
+        report += f"\n• 평균 분석 신뢰도: {avg_confidence:.1%}"
+
+        return report
+
+
+# 사용 예시 함수
+def analyze_trial_from_text(trial_name: str, inclusion_text: str, exclusion_text: str):
+    """텍스트 입력으로부터 임상시험 기준 분석 실행"""
+
+    try:
+        analyzer = QueryableCriteriaAnalyzer()
+        result = analyzer.analyze_trial_criteria(trial_name, inclusion_text, exclusion_text)
+        report = analyzer.generate_report(result)
+
+        print(report)
+        return result
+
+    except Exception as e:
+        print(f"❌ 분석 실패: {e}")
+        return None
+
+
+if __name__ == "__main__":
+    # 테스트 예시
+    sample_inclusion = """
+    1. 만 19세 이상 75세 이하의 성인 남녀
+    2. 고혈압 진단을 받고 현재 항고혈압제를 복용 중인 환자
+    3. 최근 6개월 이내 혈압이 140/90 mmHg 이상으로 측정된 환자
+    4. 연구 참여에 서면 동의한 환자
+    5. 연구 기간 중 지속적인 추적관찰이 가능한 환자
+    """
+
+    sample_exclusion = """
+    1. 임신 또는 수유 중인 여성
+    2. 심각한 간기능 또는 신기능 장애가 있는 환자
+    3. 최근 3개월 이내 심근경색이나 뇌졸중 병력이 있는 환자
+    4. 연구자가 부적합하다고 판단하는 환자
+    5. 다른 임상시험에 참여 중인 환자
+    """
+
+    analyze_trial_from_text("고혈압 신약 효능 평가 연구", sample_inclusion, sample_exclusion)

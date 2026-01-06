@@ -1,0 +1,48 @@
+# 레시피 고유 이름
+name: analyze_advanced_regional_density
+
+# 레시피 설명
+description: "특정 질환에 대한 지역별(시도, 시군구) 환자 수 및 밀도(전체 인구 대비)를 분석합니다. 지역별 의료 수요와 시장 점유율을 파악하는 데 사용됩니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "지역 분석"
+  - "환자 밀도"
+  - "시군구"
+  - "Regional Analysis"
+  - "Density"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_patient_count"
+    type: "integer"
+    description: "결과에 포함될 최소 환자 수"
+    required: false
+    default: 10
+  - name: "top_n"
+    type: "integer"
+    description: "상위 N개 지역만 표시"
+    required: false
+    default: 50
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "sido_sigungu"
+  y_column: "patient_count"
+  title: "지역별 환자 수"

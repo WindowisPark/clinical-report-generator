@@ -1,0 +1,30 @@
+# 레시피 고유 이름
+name: analyze_screened_gender_distribution
+
+# 레시피 설명
+description: "스크리닝된 임상시험 대상 환자의 성별 분포를 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "성별 분포"
+  - "스크리닝 결과"
+  - "임상시험"
+  - "인구학적 특성"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "screening_conditions"
+    type: "string"
+    description: "스크리닝 조건 설명"
+    required: true
+    default: "임상시험 스크리닝 조건"
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "gender_description"
+  y_column: "patient_count"
+  title: "스크리닝된 환자의 성별 분포"

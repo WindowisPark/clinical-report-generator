@@ -1,0 +1,27 @@
+# 레시피 고유 이름
+name: get_detailed_visit_list_by_disease
+
+# 레시피 설명
+description: "특정 질환을 가진 환자들의 상세 방문 기록(인적사항, 병원정보, 처방약 등) 리스트를 추출합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "방문기록"
+  - "환자 리스트"
+  - "상세정보"
+  - "처방내역"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "조회할 질환명 키워드 (예: 중증근무력증)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "상세 방문 기록"

@@ -1,0 +1,1248 @@
+import streamlit as st
+import os
+import re
+import io
+import yaml
+import pandas as pd
+import json
+import google.generativeai as genai
+from datetime import date, timedelta
+from jinja2 import Template
+import plotly.express as px
+import plotly.graph_objects as go
+
+
+# --- 1. Helper Functions ---
+
+@st.cache_data
+def load_recipes():
+    """Load all recipe YAML files from the recipes directory."""
+    recipe_dir = "recipes"
+    recipes = []
+    if not os.path.exists(recipe_dir):
+        st.error(f"Recipe directory '{recipe_dir}' not found.")
+        return recipes
+        
+    for subdir, _, files in os.walk(recipe_dir):
+        for file in files:
+            if file.endswith(".yaml"):
+                file_path = os.path.join(subdir, file)
+                with open(file_path, "r", encoding="utf-8") as f:
+                    try:
+                        recipe = yaml.safe_load(f)
+                        if recipe and 'name' in recipe:
+                            recipe['sql_file_path'] = file_path.replace(".yaml", ".sql")
+                            recipes.append(recipe)
+                    except yaml.YAMLError as e:
+                        st.error(f"Error loading YAML file {file_path}: {e}")
+    return recipes
+
+@st.cache_data
+def load_data_dictionary():
+    """Load the data dictionary CSV file."""
+    dict_path = "notion_columns_improved.csv"
+    if os.path.exists(dict_path):
+        return pd.read_csv(dict_path)
+    return None
+
+def get_sql_from_recipe(recipe):
+    """Get the SQL query content from a recipe's SQL file."""
+    try:
+        with open(recipe['sql_file_path'], "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"Error: SQL file not found at {recipe['sql_file_path']}"
+    except Exception as e:
+        return f"An error occurred: {e}"
+
+def fill_sql_parameters(sql_template, params):
+    """Renders the SQL template using Jinja2 to handle complex logic and special placeholders."""
+    render_params = (params or {}).copy()
+
+    for key, value in render_params.items():
+        if isinstance(value, str):
+            if value == '[DEFAULT_3_YEARS_AGO]':
+                three_years_ago = date.today() - timedelta(days=3*365)
+                render_params[key] = three_years_ago.strftime('%Y-%m-%d')
+            elif value == '[CURRENT_DATE]':
+                render_params[key] = date.today().strftime('%Y-%m-%d')
+            elif value == '[NOT_FOUND]':
+                render_params[key] = None
+            else:
+                match = re.match(r'\[DEFAULT_(\w+)\]', value)
+                if match:
+                    render_params[key] = match.group(1)
+
+    try:
+        template = Template(sql_template)
+        return template.render(render_params)
+    except Exception as e:
+        return f"Error rendering Jinja2 template: {e}"
+
+def get_report_structure_with_llm(user_query, all_recipes, mandatory_recipes=None):
+    """Generate a report structure and extract parameters using the LLM."""
+    try:
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+            api_key = config.get("api_keys", {}).get("gemini_api_key")
+
+        if not api_key or api_key == "YOUR_GEMINI_API_KEY_HERE":
+            st.error("Gemini API key is not configured. Please set it in `config.yaml`.")
+            return None
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        recipe_details = []
+        for r in all_recipes:
+            param_info = ", ".join([p['name'] for p in r.get('parameters', [])])
+            recipe_details.append(
+                f"- Recipe Name: {r.get('name')}\n  Description: {r.get('description')}\n  Category: {r.get('category')}\n  Parameters: [{param_info}]"
+            )
+        recipe_info_for_prompt = "\n".join(recipe_details)
+
+        mandatory_recipes_prompt_part = ""
+        if mandatory_recipes:
+            mandatory_recipes_list = "\n".join([f"- {r}" for r in mandatory_recipes])
+            mandatory_recipes_prompt_part = f"""
+        IMPORTANT: The user has explicitly requested that the following recipes MUST be included in the report. Please build your narrative and report structure around them, while also selecting other relevant recipes to complete the story.
+        ---
+        MANDATORY RECIPES:
+        {mandatory_recipes_list}
+        ---
+        """
+
+        prompt = f"""You are a seasoned consultant for pharmaceutical companies, specializing in clinical data analysis and market strategy. Your task is to create a comprehensive report outline based on a user's request, tailored for a pharmaceutical company's drug development pipeline (e.g., market analysis, patient segmentation, clinical trial feasibility).
+
+        {mandatory_recipes_prompt_part}
+
+        IMPORTANT CONTEXT: The data must be filtered by the disease NAME (e.g., '고혈압') in the 'res_disease_name' column, NOT by disease code. The queries will be run on a Databricks environment.
+
+        Based on the user's query: '{user_query}'
+
+        And the following available analysis recipes:
+        ---
+        {recipe_info_for_prompt}
+        ---
+
+        Perform the following tasks:
+        1.  **Analyze User Intent:** Determine if the user wants a "Feasibility Report" for clinical trial recruitment or a "Market Landscape Report" for a drug pipeline.
+        2.  **Create a Narrative:** Based on the intent, devise a logical narrative for the strategic report.
+        3.  **Select Recipes:** Choose a sequence of 3 to 5 recipes that best fit this narrative. If mandatory recipes are provided, you must use them.
+        4.  **Extract Parameters:** For each recipe, extract parameters from the user's query. Use placeholders like '[NOT_FOUND]', '[DEFAULT_3_YEARS_AGO]', '[CURRENT_DATE]', or '[DEFAULT_50]' if a value isn't present.
+        5.  **Generate Report Components:** Write a professional report title, a concise executive summary explaining the report's purpose, a table of contents, and a 'rationale' for each page explaining why that analysis is important for the strategic goal.
+
+        Your output MUST be a single JSON object. Here are two examples of the expected output structure based on the user's intent.
+
+        ---
+        **EXAMPLE 1: Feasibility Report**
+        - User Query: "천식을 동반한 다년성 알레르기 비염 환자 대상 DW1807 3상 임상시험 환자 모집 타당성 분석"
+        - Your JSON Output:
+        ```json
+        {{
+            "report_title": "DW1807 임상시험 환자 모집 타당성 분석",
+            "executive_summary": "본 보고서는 '천식을 동반한 다년성 알레르기 비염' 환자 대상 DW1807 3상 임상시험의 환자 모집 타당성을 분석합니다. 목표 모집 인원 200명에 대해, 현재 보유한 RWD 데이터를 기반으로 예상 모집 성공률 및 소요 기간을 예측하여 임상시험의 성공 가능성을 평가하는 것을 목적으로 합니다.",
+            "table_of_contents": [
+                "1. 모집 성공률 및 소요 기간 예측",
+                "2. 환자군 상세 프로파일 분석",
+                "3. 주요 동반 질환 분석",
+                "4. 경쟁 및 기존 처방 약물 현황"
+            ],
+            "pages": [
+                {{
+                    "title": "1. 모집 성공률 및 소요 기간 예측",
+                    "rationale": "전체 환자 풀에서부터 주요 포함/제외 기준을 적용하여 최종 모집 가능한 환자 수를 예측하고, 이를 통해 목표 인원 달성 가능성과 예상 소요 기간을 산출합니다.",
+                    "recipe_name": "analyze_recruitment_feasibility",
+                    "parameters": {{"disease_name_keyword": "알레르기 비염", "min_age": 19, "max_age": 75, "min_visits": 1, "target_enrollment": 200}}
+                }},
+                {{
+                    "title": "2. 환자군 상세 프로파일 분석",
+                    "rationale": "모집 대상 환자군의 인구통계학적 특성(성별, 연령) 및 지역적 분포를 파악하여, 리크루팅 전략 수립 시 타겟 대상을 명확히 합니다.",
+                    "recipe_name": "get_demographic_distribution_by_disease",
+                    "parameters": {{"disease_name_keyword": "알레르기 비염", "start_date": "[DEFAULT_3_YEARS_AGO]", "end_date": "[CURRENT_DATE]"}}
+                }},
+                {{
+                    "title": "3. 주요 동반 질환 분석",
+                    "rationale": "대상 환자군이 보유한 주요 동반 질환을 파악하여, 임상시험 진행 중 발생할 수 있는 잠재적 리스크를 관리하고, 복합적인 환자 특성을 이해합니다.",
+                    "recipe_name": "get_top_comorbidities_for_cohort",
+                    "parameters": {{"disease_name_keyword": "알레르기 비염", "start_date": "[DEFAULT_3_YEARS_AGO]", "end_date": "[CURRENT_DATE]", "top_n": 10}}
+                }},
+                {{
+                    "title": "4. 경쟁 및 기존 처방 약물 현황",
+                    "rationale": "현재 시장에서 처방되고 있는 주요 약물들을 파악하여, 대상 환자군의 기존 치료 패턴을 이해하고 임상시험 설계 시 대조군 설정 및 시장 진입 전략에 활용합니다.",
+                    "recipe_name": "get_top_prescribed_ingredients_by_disease",
+                    "parameters": {{"disease_name_keyword": "알레르기 비염", "start_date": "[DEFAULT_3_YEARS_AGO]", "end_date": "[CURRENT_DATE]", "top_n": 10}}
+                }}
+            ]
+        }}
+        ```
+        ---
+        **EXAMPLE 2: Market Landscape Report**
+        - User Query: "원형탈모증 신약 시장성 분석"
+        - Your JSON Output:
+        ```json
+        {{
+            "report_title": "원형탈모증 시장 분석 및 환자 프로파일링",
+            "executive_summary": "본 보고서는 신규 원형탈모증 치료제 개발을 위한 시장성 분석을 목적으로 합니다. RWD를 기반으로 국내 원형탈모증 시장의 규모를 추정하고, 환자 특성 및 주요 의료 이용 패턴을 분석하여, 성공적인 신약 개발 및 시장 진입 전략 수립을 위한 핵심 인사이트를 제공합니다.",
+            "table_of_contents": [
+                "1. 전체 시장 규모 분석",
+                "2. 환자 인구통계학적 특성",
+                "3. 주요 의료 이용 패턴 (병원 등급별)",
+                "4. 주요 처방 약물 분석"
+            ],
+            "pages": [
+                {{
+                    "title": "1. 전체 시장 규모 분석",
+                    "rationale": "국내 원형탈모증 환자의 전체 수를 파악하여 시장의 매력도를 평가하고, 잠재적 시장 규모를 예측합니다.",
+                    "recipe_name": "get_patient_count_by_disease_keyword",
+                    "parameters": {{"disease_keyword": "원형탈모증"}}
+                }},
+                {{
+                    "title": "2. 환자 인구통계학적 특성",
+                    "rationale": "주요 환자군의 성별 및 연령대 분포를 분석하여, 마케팅 및 개발 전략 수립 시 핵심 타겟이 될 인구통계학적 세그먼트를 식별합니다.",
+                    "recipe_name": "get_demographic_distribution_by_disease",
+                    "parameters": {{"disease_name_keyword": "원형탈모증", "start_date": "[DEFAULT_3_YEARS_AGO]", "end_date": "[CURRENT_DATE]"}}
+                }},
+                {{
+                    "title": "3. 주요 의료 이용 패턴 (병원 등급별)",
+                    "rationale": "환자들이 주로 이용하는 병원 등급(1, 2, 3차)을 분석하여, 제품 출시 후 영업 및 마케팅 채널 전략을 수립하는 데 활용합니다.",
+                    "recipe_name": "analyze_visits_by_hospital_tier",
+                    "parameters": {{"disease_keyword": "원형탈모증"}}
+                }},
+                {{
+                    "title": "4. 주요 처방 약물 분석",
+                    "rationale": "현재 시장의 표준 치료(Standard of Care)와 주요 경쟁 약물을 파악하여, 개발 중인 신약의 시장 내 포지셔닝 및 차별화 전략을 수립합니다.",
+                    "recipe_name": "get_top_prescribed_ingredients_by_disease",
+                    "parameters": {{"disease_name_keyword": "원형탈모증", "start_date": "[DEFAULT_3_YEARS_AGO]", "end_date": "[CURRENT_DATE]", "top_n": 10}}
+                }}
+            ]
+        }}
+        ```
+        ---
+
+        Ensure the recipe names and parameter names in your output *exactly* match the provided list. Now, generate the JSON for the user's query: '{user_query}'.
+        """
+
+        response = model.generate_content(prompt)
+        cleaned_response_text = response.text.strip().replace("```json", "").replace("```", "")
+        return json.loads(cleaned_response_text)
+
+    except Exception as e:
+        st.error(f"An error occurred while communicating with the LLM: {e}")
+        return None
+
+def robust_csv_parser(data_input):
+    """Parses CSV-like data from a string or uploaded file using pandas' auto-detection."""
+    if hasattr(data_input, 'getvalue'):
+        text_data = data_input.getvalue().decode('utf-8')
+    else:
+        text_data = str(data_input)
+    
+    csv_file = io.StringIO(text_data)
+    # Use sep=None and engine='python' to auto-detect separators
+    df = pd.read_csv(csv_file, sep=None, engine='python')
+    return df
+
+# --- Main App Logic ---
+
+st.set_page_config(page_title="Clinical Report Query Generator", layout="wide")
+st.title("📑 Clinical Report Query Generator")
+st.caption("AI-powered SQL generator for clinical data analysis...")
+
+if 'report_structure' not in st.session_state:
+    st.session_state.report_structure = None
+
+with st.spinner("Loading recipes and data dictionary..."):
+    all_recipes = load_recipes()
+    recipe_dict = {recipe['name']: recipe for recipe in all_recipes if recipe}
+    data_dictionary = load_data_dictionary()
+
+if not all_recipes:
+    st.stop()
+
+# --- Sidebar ---
+st.sidebar.header("User Input")
+user_query = st.sidebar.text_area(
+    "분석 리포트의 주제나 원하는 분석 흐름을 자유롭게 입력하세요. (예: \"20대 여성 비만 환자 프로파일링\" 또는 \"시장 규모를 먼저 보고, 다음으로 주요 처방 약물을 분석하는 보고서\")",
+    height=100,
+    key="user_query_input"
+)
+
+# --- New UI for mandatory recipes ---
+st.sidebar.subheader("필수 포함 레시피 선택 (옵션)")
+# Group full recipe objects by category
+categorized_recipes = {}
+for r in all_recipes:
+    cat = r.get('category', 'Uncategorized')
+    if cat not in categorized_recipes:
+        categorized_recipes[cat] = []
+    categorized_recipes[cat].append(r)
+
+selected_recipes = []
+# Sort categories for consistent order
+for category in sorted(categorized_recipes.keys()):
+    with st.sidebar.expander(f"카테고리: {category}", expanded=False):
+        # Sort recipes within the category by name
+        for recipe in sorted(categorized_recipes[category], key=lambda x: x['name']):
+            recipe_name = recipe['name']
+            recipe_desc = recipe.get('description', 'No description available.')
+            # Use checkbox with description as label
+            if st.checkbox(f"{recipe_name}: {recipe_desc}", key=f"checkbox_{recipe_name}"):
+                selected_recipes.append(recipe_name)
+# --- End of New UI ---
+
+def clear_report_state():
+    st.session_state.report_structure = None
+    for key in list(st.session_state.keys()):
+        if key.startswith('dataframe_') or key.startswith('csv_input_') or key.startswith('uploader_'):
+            del st.session_state[key]
+
+if st.sidebar.button("Generate Report", type="primary"):
+    clear_report_state()
+    if user_query:
+        with st.spinner("AI is generating the report..."):
+            # Pass selected_recipes to the LLM function
+            st.session_state.report_structure = get_report_structure_with_llm(user_query, all_recipes, selected_recipes)
+    else:
+        st.warning("Please enter a topic for the report.")
+
+if st.sidebar.button("Clear Report"):
+    clear_report_state()
+
+st.sidebar.divider()
+if st.sidebar.toggle("Show Data Dictionary", False):
+    st.subheader("Data Dictionary")
+    if data_dictionary is not None:
+        st.dataframe(data_dictionary)
+    else:
+        st.warning("Data dictionary file (`notion_columns_improved.csv`) not found.")
+
+# --- Main Content ---
+# Create main tabs
+tab_names = ["🏠 홈", "🔬 파이프라인 분석", "🤖 AI 쿼리 생성", "📊 리포트 보기"]
+# Conditionally add clinical trial tab (will be deprecated)
+# if CLINICAL_TRIAL_AVAILABLE:
+#     tab_names.append("🏥 Clinical Trial Screening")
+
+main_tabs = st.tabs(tab_names)
+
+# Tab 1: 홈 (Home - existing query builder functionality)
+with main_tabs[0]:
+    if st.session_state.report_structure:
+        report_structure = st.session_state.report_structure
+        if "report_title" in report_structure and "pages" in report_structure:
+            st.header(report_structure["report_title"])
+
+            # Display Executive Summary and ToC
+            if "executive_summary" in report_structure:
+                st.subheader("Executive Summary")
+                st.markdown(report_structure["executive_summary"])
+
+            if "table_of_contents" in report_structure:
+                st.subheader("Table of Contents")
+                for item in report_structure["table_of_contents"]:
+                    st.markdown(f"- {item}")
+
+            st.divider()
+
+            tab_titles = [page.get("title", f"Page {i+1}") for i, page in enumerate(report_structure["pages"])]
+            tabs = st.tabs(tab_titles)
+
+            for i, page in enumerate(report_structure["pages"]):
+                with tabs[i]:
+                    recipe_name = page.get("recipe_name")
+                    recipe = recipe_dict.get(recipe_name)
+                    llm_params = page.get("parameters", {})
+
+                    if not recipe:
+                        st.error(f"LLM recommended recipe '{recipe_name}', but it was not found.")
+                        continue
+
+                    # Display the rationale
+                    if "rationale" in page:
+                        st.info(f"**Rationale:** {page['rationale']}")
+
+                    st.subheader(f"Recipe: `{recipe_name}`")
+                    st.markdown(f"**Description:** {recipe.get('description', 'N/A')}")
+                    st.json(llm_params)
+
+                    st.subheader("Final SQL Query")
+                    sql_template = get_sql_from_recipe(recipe)
+                    final_sql = fill_sql_parameters(sql_template, llm_params)
+                    st.code(final_sql, language="sql")
+
+                    st.divider()
+                    st.subheader("📊 Generate Visualization")
+                    df_key = f"dataframe_{i}"
+
+                    viz_tab1, viz_tab2 = st.tabs(["Paste Text", "Upload File"])
+
+                    with viz_tab1:
+                        csv_input_key = f"csv_input_{i}"
+                        st.text_area("Paste CSV data...", height=150, key=csv_input_key)
+                        if st.button("Generate from Text", key=f"text_button_{i}"):
+                            csv_text = st.session_state.get(csv_input_key, "")
+                            if csv_text:
+                                try:
+                                    df = robust_csv_parser(csv_text)
+                                    st.session_state[df_key] = df
+                                except Exception as e:
+                                    st.error(f"Failed to parse CSV from text: {e}")
+                                    if df_key in st.session_state: del st.session_state[df_key]
+                            else:
+                                st.warning("Please paste CSV data first.")
+
+                    with viz_tab2:
+                        upload_key = f"uploader_{i}"
+                        uploaded_file = st.file_uploader("Upload CSV file...", type=["csv", "txt"], key=upload_key)
+                        if uploaded_file is not None:
+                            try:
+                                df = robust_csv_parser(uploaded_file)
+                                st.session_state[df_key] = df
+                            except Exception as e:
+                                st.error(f"Failed to parse CSV from file: {e}")
+                                if df_key in st.session_state: del st.session_state[df_key]
+
+                    if df_key in st.session_state:
+                        df = st.session_state[df_key]
+                        viz_info = recipe.get("visualization")
+
+                        st.write("**Chart:**")
+                        if viz_info:
+                            chart_type = viz_info.get("chart_type")
+                            chart_title = viz_info.get("title", "")
+
+                            try:
+                                if chart_type == "bar_chart":
+                                    x_col = viz_info.get("x_column")
+                                    y_col = viz_info.get("y_column")
+
+                                    # Create Plotly bar chart
+                                    fig = px.bar(
+                                        df,
+                                        x=x_col,
+                                        y=y_col,
+                                        title=chart_title,
+                                        labels={x_col: x_col, y_col: y_col},
+                                        color_discrete_sequence=['#1f77b4']
+                                    )
+                                    fig.update_layout(
+                                        xaxis_title=x_col,
+                                        yaxis_title=y_col,
+                                        hovermode='x unified'
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+
+                                elif chart_type == "line_chart":
+                                    x_col = viz_info.get("x_column")
+                                    y_col = viz_info.get("y_column")
+
+                                    # Create Plotly line chart
+                                    fig = px.line(
+                                        df,
+                                        x=x_col,
+                                        y=y_col,
+                                        title=chart_title,
+                                        labels={x_col: x_col, y_col: y_col},
+                                        markers=True
+                                    )
+                                    fig.update_layout(
+                                        xaxis_title=x_col,
+                                        yaxis_title=y_col,
+                                        hovermode='x unified'
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+
+                                elif chart_type == "metric":
+                                    # For single-row dataframes, display each column as a metric
+                                    if not df.empty:
+                                        cols = st.columns(len(df.columns))
+                                        for j, col_name in enumerate(df.columns):
+                                            cols[j].metric(label=col_name, value=df.iloc[0][col_name])
+                                    else:
+                                        st.warning("Data is empty, cannot display metrics.")
+
+                                else: # Default to table
+                                    st.write("**Parsed Data Table:**")
+                                    st.dataframe(df)
+
+                            except Exception as e:
+                                st.error(f"Failed to generate chart: {e}")
+                                st.write("Displaying raw data instead:")
+                                st.dataframe(df)
+                        else:
+                            st.write("No visualization info in recipe. Displaying raw data table.")
+                            st.dataframe(df)
+
+        else:
+            st.error("Failed to generate a valid report structure from the LLM.")
+    else:
+        st.info("Enter a topic in the sidebar and click 'Generate Report' to begin.")
+
+# Tab 2: 파이프라인 분석 (Disease-Centric Pipeline Analysis - Phase 6)
+with main_tabs[1]:
+    st.header("🔬 질환 중심 파이프라인 분석")
+    st.markdown("**질환명만 입력하면 자동으로 핵심 분석과 맞춤 추천 분석을 제공합니다.**")
+
+    # Import disease pipeline
+    try:
+        from disease_pipeline import DiseaseAnalysisPipeline
+
+        # Initialize pipeline
+        if 'disease_pipeline' not in st.session_state:
+            try:
+                st.session_state.disease_pipeline = DiseaseAnalysisPipeline(recipe_dir="recipes")
+            except Exception as e:
+                st.error(f"파이프라인 초기화 실패: {e}")
+                st.session_state.disease_pipeline = None
+
+        if st.session_state.disease_pipeline:
+            pipeline = st.session_state.disease_pipeline
+
+            # Step 1: Disease name input
+            st.subheader("1️⃣ 질환명 입력")
+            disease_name = st.text_input(
+                "분석하고 싶은 질환명을 입력하세요",
+                value="당뇨병",
+                help="예: 당뇨병, 고혈압, 천식, 골다공증 등",
+                key="pipeline_disease_input"
+            )
+
+            # Step 2: Run core recipes and get recommendations
+            if st.button("🔍 분석 시작", type="primary", key="start_pipeline_analysis"):
+                if disease_name:
+                    with st.spinner("🔄 핵심 분석 실행 및 추천 레시피 생성 중..."):
+                        # Execute core recipes
+                        core_results = pipeline.execute_core_recipes(disease_name)
+
+                        # Get LLM recommendations
+                        recommended = pipeline.recommend_additional_recipes(disease_name, target_count=7)
+
+                        # Store in session state
+                        st.session_state.pipeline_core_results = core_results
+                        st.session_state.pipeline_recommended = recommended
+                        st.session_state.pipeline_disease_name = disease_name
+
+                        # Initialize checkbox states (all checked by default)
+                        if 'pipeline_checkboxes' not in st.session_state:
+                            st.session_state.pipeline_checkboxes = {}
+                        for recipe_name in recommended:
+                            if recipe_name not in st.session_state.pipeline_checkboxes:
+                                st.session_state.pipeline_checkboxes[recipe_name] = True
+
+                    st.success(f"✅ '{disease_name}' 분석 준비 완료!")
+                else:
+                    st.warning("⚠️ 질환명을 입력해주세요.")
+
+            # Step 3: Show core results and recommendations
+            if 'pipeline_core_results' in st.session_state:
+                st.divider()
+                st.subheader("2️⃣ 자동 실행될 핵심 분석 (4개)")
+
+                core_success = sum(1 for r in st.session_state.pipeline_core_results if r.get('success', False))
+                st.info(f"✅ {core_success}/{len(st.session_state.pipeline_core_results)} 개 핵심 레시피 준비됨")
+
+                with st.expander("핵심 레시피 상세보기"):
+                    for result in st.session_state.pipeline_core_results:
+                        if result.get('success'):
+                            st.markdown(f"**✓ {result['recipe_name']}**")
+                            st.caption(result.get('metadata', {}).get('description', 'N/A'))
+                        else:
+                            st.markdown(f"**✗ {result['recipe_name']}** - ❌ Error: {result.get('error', 'Unknown')}")
+
+                st.divider()
+                st.subheader("3️⃣ 추천 분석 선택")
+                st.markdown(f"**'{st.session_state.pipeline_disease_name}'** 질환에 적합한 {len(st.session_state.pipeline_recommended)}개 추가 분석이 추천되었습니다.")
+
+                # Display checkboxes for recommended recipes
+                st.markdown("**체크박스로 원하는 분석을 선택하세요:**")
+
+                # Initialize checkboxes if not exists
+                if 'pipeline_checkboxes' not in st.session_state:
+                    st.session_state.pipeline_checkboxes = {}
+
+                for idx, recipe_name in enumerate(st.session_state.pipeline_recommended):
+                    recipe = pipeline.recipe_loader.get_recipe_by_name(recipe_name)
+                    description = recipe.get('description', 'No description') if recipe else 'Recipe not found'
+
+                    # Initialize checkbox state if not exists
+                    if recipe_name not in st.session_state.pipeline_checkboxes:
+                        st.session_state.pipeline_checkboxes[recipe_name] = True
+
+                    # Checkbox for each recipe with unique key using index
+                    is_checked = st.checkbox(
+                        f"**{recipe_name}**",
+                        value=st.session_state.pipeline_checkboxes[recipe_name],
+                        key=f"pipeline_cb_{idx}_{recipe_name[:20]}",
+                        help=description
+                    )
+                    st.session_state.pipeline_checkboxes[recipe_name] = is_checked
+                    st.caption(f"📝 {description}")
+                    st.markdown("")
+
+                # Natural language refinement
+                st.divider()
+                st.subheader("4️⃣ 자연어로 추가 요청 (선택사항)")
+                nl_feedback = st.text_area(
+                    "추가로 원하는 분석이 있으면 자연어로 입력하세요",
+                    placeholder="예: 비용 관련 분석을 더 추가해줘\n예: 시간 경과에 따른 분석은 빼줘",
+                    help="체크박스 선택을 자연어로 조정할 수 있습니다",
+                    key="pipeline_nl_feedback"
+                )
+
+                if nl_feedback and st.button("🔄 추천 조정", key="refine_recommendations"):
+                    with st.spinner("🤖 자연어 피드백 반영 중..."):
+                        refined = pipeline.refine_recommendations_with_nl(
+                            st.session_state.pipeline_disease_name,
+                            st.session_state.pipeline_recommended,
+                            nl_feedback
+                        )
+                        st.session_state.pipeline_recommended = refined
+
+                        # Reset checkboxes for new recommendations
+                        st.session_state.pipeline_checkboxes = {}
+                        for recipe_name in refined:
+                            st.session_state.pipeline_checkboxes[recipe_name] = True
+
+                        st.rerun()
+
+                # Final execution button
+                st.divider()
+                st.subheader("5️⃣ 최종 실행")
+
+                approved_count = sum(1 for checked in st.session_state.pipeline_checkboxes.values() if checked)
+                total_count = 4 + approved_count  # 4 core + approved additional
+
+                st.info(f"총 **{total_count}개** 레시피가 실행됩니다 (핵심 4개 + 선택 {approved_count}개)")
+
+                if st.button(f"🚀 {total_count}개 레시피 실행", type="primary", key="execute_pipeline"):
+                    # Get approved recipes
+                    approved_recipes = [
+                        name for name, checked in st.session_state.pipeline_checkboxes.items()
+                        if checked
+                    ]
+
+                    with st.spinner(f"⏳ {total_count}개 레시피 실행 중..."):
+                        # Execute all approved recipes
+                        approved_results = pipeline.execute_approved_recipes(
+                            st.session_state.pipeline_disease_name,
+                            approved_recipes
+                        )
+
+                        # Combine with core results
+                        all_results = st.session_state.pipeline_core_results + approved_results
+
+                        # Calculate success rate
+                        success_count = sum(1 for r in all_results if r.get('success', False))
+                        success_rate = success_count / len(all_results) if all_results else 0
+
+                        # Store results
+                        st.session_state.pipeline_final_results = all_results
+                        st.session_state.pipeline_success_rate = success_rate
+
+                    st.success(f"✅ 분석 완료! 성공률: {success_rate*100:.1f}% ({success_count}/{len(all_results)})")
+                    st.balloons()
+
+            # Step 4: Display final results
+            if 'pipeline_final_results' in st.session_state:
+                st.divider()
+                st.header("📊 분석 결과")
+
+                results = st.session_state.pipeline_final_results
+                success_rate = st.session_state.pipeline_success_rate
+
+                # Summary metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("총 실행 레시피", len(results))
+                with col2:
+                    success_count = sum(1 for r in results if r.get('success', False))
+                    st.metric("성공", success_count)
+                with col3:
+                    st.metric("성공률", f"{success_rate*100:.1f}%")
+
+                # Display each result
+                st.subheader("상세 결과")
+                for idx, result in enumerate(results, 1):
+                    recipe_name = result.get('recipe_name', 'Unknown')
+                    success = result.get('success', False)
+
+                    if success:
+                        with st.expander(f"✅ {idx}. {recipe_name}", expanded=False):
+                            metadata = result.get('metadata', {})
+                            st.markdown(f"**설명:** {metadata.get('description', 'N/A')}")
+
+                            params = result.get('parameters', {})
+                            if params:
+                                st.markdown("**파라미터:**")
+                                st.json(params)
+
+                            st.markdown("**생성된 SQL:**")
+                            st.code(result.get('sql_query', 'No SQL'), language='sql')
+                    else:
+                        with st.expander(f"❌ {idx}. {recipe_name} - 실패", expanded=False):
+                            st.error(f"오류: {result.get('error', 'Unknown error')}")
+
+    except ImportError:
+        st.error("❌ Disease Pipeline 모듈을 찾을 수 없습니다. `disease_pipeline.py` 파일을 확인하세요.")
+    except Exception as e:
+        st.error(f"❌ 예상치 못한 오류 발생: {e}")
+
+# Tab 3: AI 쿼리 생성 (NL2SQL - Pattern II RAG)
+# IMPROVED VERSION with better UX for SQL code generation workflow
+with main_tabs[2]:
+    st.header("🤖 AI 기반 쿼리 생성")
+
+    # P0.1: Purpose clarity banner
+    st.info("""
+📌 **이 도구는 SQL 코드 생성기입니다**
+• ✅ 자연어 → SQL 쿼리 자동 변환
+• ✅ 생성된 SQL을 복사하여 Databricks에서 실행
+• ❌ 이 화면에서는 데이터를 조회하지 않습니다
+    """)
+
+    st.markdown("""
+    자연어로 요청하면 스키마와 참조 데이터를 활용하여 SQL을 자동 생성합니다.
+    **레시피 없이** 자유로운 데이터 탐색이 가능합니다.
+    """)
+
+    # Initialize NL2SQL generator
+    try:
+        from nl2sql_generator import NL2SQLGenerator
+
+        if 'nl2sql_generator' not in st.session_state:
+            with st.spinner("NL2SQL Generator 초기화 중..."):
+                st.session_state.nl2sql_generator = NL2SQLGenerator()
+
+        # User input
+        st.subheader("📝 자연어 요청")
+
+        # P2.1: Prompt engineering help
+        with st.expander("💡 효과적인 요청 작성법", expanded=False):
+            st.markdown("""
+            ### 좋은 요청 예시:
+
+            ✅ **구체적인 질문**
+            - "고혈압 환자의 성별 분포를 보여주세요"
+            - "당뇨병 환자에게 가장 많이 처방된 약물 TOP 10"
+
+            ✅ **조건 포함**
+            - "서울 지역 3차 병원에서 치료받은 암 환자는 몇 명?"
+            - "최근 1년간 고혈압으로 처방받은 약물 성분별 환자 수"
+
+            ❌ **피해야 할 요청**
+            - "고혈압" (너무 모호함)
+            - "Show me hypertension patients" (영문 지원 안 됨)
+            - "모든 정보 보여줘" (범위 불명확)
+
+            ### 요청 구조 패턴:
+            `[질환명] + [분석 대상] + [조건(선택)]`
+            - 질환명: "고혈압", "당뇨병", "암"
+            - 분석 대상: "환자 수", "성별 분포", "처방 약물"
+            - 조건: "지역", "병원 등급", "기간"
+            """)
+
+        # Example queries
+        example_queries = [
+            "고혈압 환자의 성별 분포를 보여주세요",
+            "당뇨병 환자에게 가장 많이 처방된 약물 TOP 10",
+            "서울 지역 3차 병원에서 치료받은 암 환자는 몇 명인가요?",
+            "최근 1년간 고혈압으로 처방받은 약물 성분별 환자 수",
+        ]
+
+        selected_example = st.selectbox(
+            "예시 쿼리 선택 (선택사항)",
+            ["직접 입력"] + example_queries,
+            key="nl2sql_example"
+        )
+
+        if selected_example != "직접 입력":
+            default_query = selected_example
+        else:
+            default_query = ""
+
+        user_query = st.text_area(
+            "무엇을 분석하고 싶으신가요?",
+            value=default_query,
+            height=100,
+            placeholder="예: 고혈압 환자 중 서울 지역 3차 병원에서 치료받은 환자의 연령대별 분포",
+            help="구체적으로 작성할수록 정확한 SQL이 생성됩니다",
+            key="nl2sql_query_input"
+        )
+
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            generate_button = st.button("🚀 SQL 생성", type="primary", key="nl2sql_generate")
+
+        if generate_button and user_query:
+            with st.spinner("SQL 생성 중..."):
+                result = st.session_state.nl2sql_generator.generate_sql(user_query)
+
+            if result.success:
+                st.success("✅ SQL 생성 완료!")
+
+                # P1.2: SQL first (most important output)
+                st.subheader("📝 생성된 SQL")
+
+                # P1.1: SQL quality indicators
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("테이블 사용", len(result.analysis.get('required_tables', [])))
+                with col2:
+                    st.metric("조건 수", len(result.analysis.get('key_conditions', [])))
+                with col3:
+                    complexity = "간단" if len(result.sql_query.split('\n')) < 10 else "보통" if len(result.sql_query.split('\n')) < 20 else "복잡"
+                    st.metric("복잡도", complexity)
+
+                # Display SQL with line numbers
+                st.code(result.sql_query, language="sql", line_numbers=True)
+
+                # P0.2: Improved copy mechanism
+                col1, col2 = st.columns([3, 7])
+                with col1:
+                    st.download_button(
+                        label="💾 SQL 파일 다운로드",
+                        data=result.sql_query,
+                        file_name="generated_query.sql",
+                        mime="text/plain",
+                        key="nl2sql_download",
+                        help="SQL을 .sql 파일로 저장 후 Databricks에서 실행하세요"
+                    )
+
+                st.caption("💡 **Tip**: SQL 코드 블록을 마우스로 선택하여 복사할 수 있습니다 (Ctrl+C / Cmd+C)")
+
+                # P1.3: SQL Validation
+                def validate_databricks_sql(sql: str) -> dict:
+                    """Validate SQL against Databricks/Spark SQL rules"""
+                    issues = []
+                    warnings = []
+
+                    # Critical issues
+                    if "deleted = FALSE" not in sql and "basic_treatment" in sql:
+                        issues.append("basic_treatment 테이블 사용 시 'deleted = FALSE' 필터 필수")
+
+                    if "deleted = FALSE" not in sql and "prescribed_drug" in sql:
+                        issues.append("prescribed_drug 테이블 사용 시 'deleted = FALSE' 필터 필수")
+
+                    # Date conversion issues
+                    if "res_treat_start_date" in sql:
+                        if "CAST" in sql and "AS DATE" in sql:
+                            issues.append("res_treat_start_date는 YYYYMMDD 문자열 - TO_DATE(res_treat_start_date, 'yyyyMMdd') 사용 필수")
+                        elif "TO_DATE(res_treat_start_date)" in sql and "yyyyMMdd" not in sql:
+                            issues.append("TO_DATE는 형식 지정 필수 - TO_DATE(res_treat_start_date, 'yyyyMMdd')")
+
+                    # Warnings
+                    if "res_treat_start_date" in sql and "TO_DATE" not in sql:
+                        warnings.append("res_treat_start_date 날짜 비교 시 TO_DATE(res_treat_start_date, 'yyyyMMdd') 변환 필요")
+
+                    if "REGEXP" in sql:
+                        warnings.append("Spark SQL에서는 RLIKE 사용 권장 (REGEXP 대신)")
+
+                    return {"issues": issues, "warnings": warnings}
+
+                validation = validate_databricks_sql(result.sql_query)
+
+                if validation['issues']:
+                    st.error("🚨 **SQL 검증 실패** - 실행 전 수정 필요:")
+                    for issue in validation['issues']:
+                        st.markdown(f"- ❌ {issue}")
+
+                if validation['warnings']:
+                    st.warning("⚠️ **권장사항**:")
+                    for warning in validation['warnings']:
+                        st.markdown(f"- {warning}")
+
+                if not validation['issues'] and not validation['warnings']:
+                    st.success("✅ Databricks 호환성 검증 통과")
+
+                # P1.2: Analysis in expander (less prominent)
+                with st.expander("📊 분석 상세정보", expanded=False):
+                    analysis_col1, analysis_col2 = st.columns(2)
+
+                    with analysis_col1:
+                        st.markdown("**의도 분석**")
+                        st.info(result.analysis.get('intent', 'N/A'))
+
+                        st.markdown("**주요 조건**")
+                        if result.analysis.get('key_conditions'):
+                            for condition in result.analysis['key_conditions']:
+                                st.markdown(f"- {condition}")
+
+                    with analysis_col2:
+                        st.markdown("**사용된 테이블**")
+                        tables = result.analysis.get('required_tables', [])
+                        for table in tables:
+                            st.code(table, language="text")
+
+                        if result.relevant_examples:
+                            st.markdown("**참고한 예시**")
+                            for ex in result.relevant_examples:
+                                st.markdown(f"- {ex}")
+
+                # Explanation
+                if result.analysis.get('explanation'):
+                    with st.expander("💬 쿼리 설명"):
+                        st.markdown(result.analysis['explanation'])
+
+                # P2.3: Learning section
+                with st.expander("📚 비슷한 질문 패턴 배우기", expanded=False):
+                    st.markdown(f"""
+                    ### 이 쿼리와 비슷한 패턴:
+
+                    **현재 요청**: {user_query}
+
+                    **동일 패턴 다른 질환**:
+                    - "{user_query.replace('고혈압', '당뇨병')}"
+                    - "{user_query.replace('고혈압', '암')}"
+
+                    **조건 추가 버전**:
+                    - "{user_query} (최근 1년)"
+                    - "{user_query} (서울 지역 병원)"
+
+                    **다른 분석 각도**:
+                    """)
+
+                    if "성별" in user_query:
+                        st.markdown("- 같은 질환의 '연령대별 분포'")
+                        st.markdown("- 같은 질환의 '지역별 분포'")
+                    elif "약물" in user_query or "처방" in user_query:
+                        st.markdown("- 같은 질환의 '처방 성분별 환자 수'")
+                        st.markdown("- 같은 질환의 '처방 빈도 추이'")
+
+            else:
+                # P0.3: Error with recovery guidance
+                st.error(f"❌ SQL 생성 실패: {result.error_message}")
+
+                with st.expander("🔧 문제 해결 가이드", expanded=True):
+                    st.markdown("""
+                    ### SQL 생성 실패 시 확인사항:
+
+                    1. **질환명 확인**
+                       - ✅ 정확한 한글 질환명 사용 (예: "고혈압", "당뇨병")
+                       - ❌ 영문명은 인식 안 됨 (예: "hypertension" → "고혈압")
+
+                    2. **요청 구체화**
+                       - ✅ "고혈압 환자의 성별 분포"
+                       - ❌ "고혈압 정보" (너무 모호함)
+
+                    3. **테이블 제약 확인**
+                       - 사용 가능: basic_treatment, prescribed_drug, insured_person, hospital
+                       - 질환 필터: basic_treatment.res_disease_name
+                       - 약물 정보: prescribed_drug.res_drug_name
+
+                    4. **예시 쿼리 참고**
+                       - 위의 예시 선택 드롭다운에서 유사한 패턴 확인
+                    """)
+
+                    st.info("💡 **추천**: 위의 '예시 쿼리 선택'에서 유사한 질문을 선택해보세요")
+
+        elif generate_button:
+            st.warning("⚠️ 자연어 요청을 입력해주세요.")
+
+    except ImportError:
+        st.error("NL2SQL Generator를 불러올 수 없습니다. nl2sql_generator.py 파일을 확인하세요.")
+    except Exception as e:
+        st.error(f"오류 발생: {str(e)}")
+
+# Tab 4: 리포트 보기 (Report viewer - placeholder for saved analyses)
+with main_tabs[3]:
+    st.header("📊 저장된 리포트 보기")
+    st.info("저장된 분석 결과를 불러오는 기능은 향후 업데이트 예정입니다.")
+
+    # Placeholder for future functionality
+    st.markdown("""
+    **향후 제공 예정 기능:**
+    - 이전 분석 결과 목록 보기
+    - 분석 결과 저장 및 불러오기
+    - 분석 결과 비교
+    - PDF/Excel 내보내기
+    """)
+
+# Tab 4: Clinical Trial Screening (deprecated - will be removed)
+# Commented out for Phase 6, kept for reference
+if False and CLINICAL_TRIAL_AVAILABLE and len(main_tabs) > 3:
+    with main_tabs[3]:
+        st.header("🏥 Clinical Trial Screening Automation")
+        st.markdown("자연어 임상시험 조건을 입력하면 자동으로 적합한 SQL 쿼리를 생성합니다.")
+
+        # Sub-tabs for different functionalities
+        trial_sub_tabs = st.tabs(["🚀 스크리닝 실행", "🔍 기준 분석"])
+
+        # Tab 1: Screening Execution (existing functionality)
+        with trial_sub_tabs[0]:
+            st.subheader("임상시험 조건 입력")
+            col1, col2 = st.columns(2)
+            with col1:
+                trial_name = st.text_input(
+                    "임상시험명",
+                    value="고혈압 신약 임상시험",
+                    help="분석할 임상시험의 이름을 입력하세요",
+                    key="screening_trial_name"
+                )
+                inclusion_criteria = st.text_area(
+                    "포함 기준 (Inclusion Criteria)",
+                    value="""만 19세 이상 성인 남녀
+Visit 1 기준 평균 좌위 수축기 혈압이 140-180 mmHg 범위
+항고혈압제 복용 중인 경우, 시험자의 판단에 따라 치료 중단이 가능한 환자
+여성 대상자의 경우 피임 조건 충족
+시험 목적·내용 설명을 듣고 자발적 서면 동의를 한 환자""",
+                    height=150,
+                    help="환자가 임상시험에 참여하기 위한 포함 조건들을 입력하세요",
+                    key="screening_inclusion_criteria"
+                )
+            with col2:
+                exclusion_criteria = st.text_area(
+                    "제외 기준 (Exclusion Criteria)",
+                    value="""Visit 1 또는 Visit 2에서 MSSBP ≥ 180 mmHg 또는 MSDBP ≥ 110 mmHg
+최근 5년 이내 악성종양 병력
+최근 12개월 이내 심근경색 또는 뇌졸중 병력
+임신부 또는 수유부
+약물 또는 알코올 남용 병력
+시험약 성분에 과민증 기왕력""",
+                    height=150,
+                    help="임상시험에서 제외되어야 할 조건들을 입력하세요",
+                    key="screening_exclusion_criteria"
+                )
+
+                # Execution options
+                dry_run = st.checkbox(
+                    "Dry Run 모드 (SQL 생성만, 실행 안함)",
+                    value=True,
+                    help="체크하면 SQL 쿼리만 생성하고 실제 실행은 하지 않습니다",
+                    key="screening_dry_run"
+                )
+                comprehensive_analysis = st.checkbox(
+                    "종합 분석 모드 (기본 스크리닝 + LLM 기반 추가 분석)",
+                    value=False,
+                    help="체크하면 기본 스크리닝 후 LLM을 활용한 추가 분석을 수행합니다",
+                    key="screening_comprehensive"
+                )
+
+            # Initialize clinical trial agent
+            if 'clinical_agent' not in st.session_state:
+                with st.spinner("임상시험 에이전트 초기화 중..."):
+                    try:
+                        st.session_state.clinical_agent = ClinicalTrialAgent()
+                        st.success("✅ 임상시험 에이전트 준비 완료!")
+                    except Exception as e:
+                        st.error(f"임상시험 에이전트 초기화 실패: {e}")
+                        st.stop()
+
+            # Execute screening button
+            st.divider()
+            if st.button("🚀 스크리닝 실행", type="primary", key="execute_screening_button"):
+                if not trial_name or not inclusion_criteria or not exclusion_criteria:
+                    st.warning("⚠️ 임상시험명, 포함 기준, 제외 기준을 모두 입력해주세요.")
+                else:
+                    with st.spinner("🔄 임상시험 스크리닝 진행 중..."):
+                        try:
+                            # Choose analysis mode
+                            if comprehensive_analysis:
+                                result = st.session_state.clinical_agent.run_comprehensive_clinical_analysis(
+                                    trial_name=trial_name,
+                                    inclusion_criteria=inclusion_criteria,
+                                    exclusion_criteria=exclusion_criteria,
+                                    dry_run=dry_run
+                                )
+                                analysis_type = "종합 분석"
+                            else:
+                                result = st.session_state.clinical_agent.run_clinical_trial_screening(
+                                    trial_name=trial_name,
+                                    inclusion_criteria=inclusion_criteria,
+                                    exclusion_criteria=exclusion_criteria,
+                                    dry_run=dry_run
+                                )
+                                analysis_type = "기본 스크리닝"
+
+                            # Store results in session state
+                            st.session_state.screening_result = result
+                            st.session_state.screening_analysis_type = analysis_type
+
+                            st.success(f"✅ {analysis_type} 완료!")
+
+                        except Exception as e:
+                            st.error(f"❌ 스크리닝 실행 실패: {e}")
+                            st.exception(e)
+
+            # Display results if available
+            if 'screening_result' in st.session_state:
+                st.divider()
+                st.subheader(f"📊 {st.session_state.screening_analysis_type} 결과")
+
+                result = st.session_state.screening_result
+
+                # Display metrics
+                if 'all_executed_recipes' in result:  # Comprehensive analysis
+                    recipes = result['all_executed_recipes']
+                    success_rate = result.get('overall_success_rate', 0)
+                else:  # Basic screening
+                    recipes = result.get('execution_results', [])
+                    success_rate = result.get('success_rate', 0)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("실행된 레시피", f"{len(recipes)}개")
+                with col2:
+                    st.metric("성공률", f"{success_rate:.1%}")
+
+                # Display LLM insights if available (comprehensive analysis)
+                if 'llm_insights' in result:
+                    st.subheader("🤖 LLM 인사이트")
+                    insights = result['llm_insights']
+
+                    with st.expander("임상적 의미 (Clinical Significance)", expanded=True):
+                        st.markdown(insights.get('clinical_significance', 'N/A'))
+
+                    with st.expander("권장 추가 분석 (Recommended Analyses)"):
+                        st.markdown(insights.get('recommended_analyses', 'N/A'))
+
+                    with st.expander("데이터 부족 영역 (Data Gaps)"):
+                        st.markdown(insights.get('data_gaps', 'N/A'))
+
+                    with st.expander("다음 단계 제안 (Next Steps)"):
+                        st.markdown(insights.get('next_steps', 'N/A'))
+
+                # Display individual recipe results
+                st.subheader("📝 생성된 SQL 쿼리")
+                for idx, recipe_result in enumerate(recipes):
+                    # Handle both dict and QueryResult object
+                    if isinstance(recipe_result, dict):
+                        recipe_name = recipe_result.get('recipe_name', 'Unknown')
+                        success = recipe_result.get('success', False)
+                        sql_query = recipe_result.get('sql_query', 'No SQL generated')
+                        parameters = recipe_result.get('parameters')
+                        error_msg = recipe_result.get('error', 'Unknown error')
+                    else:  # QueryResult object
+                        recipe_name = getattr(recipe_result, 'recipe_name', 'Unknown')
+                        success = getattr(recipe_result, 'success', False)
+                        sql_query = getattr(recipe_result, 'generated_sql', 'No SQL generated')
+                        parameters = getattr(recipe_result, 'parameters', None)
+                        error_msg = getattr(recipe_result, 'error_message', 'Unknown error')
+
+                    status_icon = "✅" if success else "❌"
+                    with st.expander(f"{status_icon} {idx+1}. {recipe_name}", expanded=False):
+                        if success:
+                            st.code(sql_query, language="sql")
+
+                            # Display parameters used
+                            if parameters:
+                                st.json(parameters)
+                        else:
+                            st.error(f"실패 사유: {error_msg}")
+
+        # Tab 2: Criteria Analysis (new functionality with file/text input)
+        with trial_sub_tabs[1]:
+            st.subheader("🔍 기준 쿼리 검증 가능성 분석")
+            st.info("✅ UI 중복 문제 해결됨! 각 탭이 독립적으로 작동합니다.")
+            st.markdown("임상시험 기준 전체 텍스트를 입력하여 분석할 수 있습니다.")
+
+            # Input method selection
+            input_method = st.radio(
+                "입력 방법 선택:",
+                ["📝 직접 텍스트 입력", "📁 파일 업로드"],
+                key="criteria_input_method"
+            )
+
+            # Input section
+            trial_name_analysis = None
+            full_criteria_text = None
+
+            if input_method == "📝 직접 텍스트 입력":
+                trial_name_analysis = st.text_input(
+                    "임상시험명",
+                    value="",
+                    help="분석할 임상시험의 이름을 입력하세요",
+                    key="analysis_trial_name"
+                )
+
+                full_criteria_text = st.text_area(
+                    "임상시험 기준 전체 텍스트",
+                    value="""임상시험명: 고혈압 신약 효능 평가 연구
+
+선정기준:
+1. 만 19세 이상 75세 이하의 성인 남녀
+2. 고혈압 진단을 받고 현재 항고혈압제를 복용 중인 환자
+3. 최근 6개월 이내 혈압이 140/90 mmHg 이상으로 측정된 환자
+4. 연구 참여에 서면 동의한 환자
+
+제외기준:
+1. 임신 또는 수유 중인 여성
+2. 심각한 간기능 또는 신기능 장애가 있는 환자
+3. 최근 3개월 이내 심근경색이나 뇌졸중 병력이 있는 환자""",
+                    height=300,
+                    help="임상시험 기준 전체 텍스트를 입력하세요.",
+                    key="analysis_full_text"
+                )
+
+            elif input_method == "📁 파일 업로드":
+                uploaded_file = st.file_uploader(
+                    "임상시험 기준 파일 업로드",
+                    type=["txt"],
+                    help="임상시험 기준이 포함된 텍스트 파일을 업로드하세요",
+                    key="criteria_file_upload"
+                )
+
+                if uploaded_file is not None:
+                    try:
+                        full_criteria_text = str(uploaded_file.read(), "utf-8")
+                        trial_name_analysis = uploaded_file.name.replace('.txt', '')
+
+                        st.text_area(
+                            "업로드된 파일 내용 미리보기:",
+                            value=full_criteria_text[:1000] + "..." if len(full_criteria_text) > 1000 else full_criteria_text,
+                            height=200,
+                            disabled=True,
+                            key="file_preview"
+                        )
+                    except Exception as e:
+                        st.error(f"파일 읽기 실패: {e}")
+
+            # Analysis section
+            if trial_name_analysis and full_criteria_text:
+                if st.button("📊 기준 분석 실행", help="전체 텍스트에서 기준을 추출하고 검증 가능성을 분석합니다", key="criteria_analysis_button"):
+                    if QUERYABLE_CRITERIA_AVAILABLE:
+                        with st.spinner("임상시험 기준 자동 추출 및 분석 중..."):
+                            try:
+                                # Initialize analyzer
+                                if 'criteria_analyzer' not in st.session_state:
+                                    st.session_state.criteria_analyzer = QueryableCriteriaAnalyzer()
+
+                                # Parse the full text to extract inclusion/exclusion criteria
+                                inclusion_text, exclusion_text = parse_criteria_text(full_criteria_text)
+
+                                # Analyze criteria
+                                analysis_result = st.session_state.criteria_analyzer.analyze_trial_criteria(
+                                    trial_name=trial_name_analysis,
+                                    inclusion_criteria=inclusion_text,
+                                    exclusion_criteria=exclusion_text
+                                )
+
+                                # Store result in session state
+                                st.session_state.criteria_analysis_result = analysis_result
+
+                                st.success("✅ 기준 분석 완료!")
+
+                                # Display results
+                                total_criteria = analysis_result['total_criteria_count']
+                                queryability_ratio = analysis_result['overall_queryability_ratio']
+
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("총 기준 수", f"{total_criteria}개")
+                                with col2:
+                                    st.metric("쿼리 검증 가능률", f"{queryability_ratio:.1%}")
+                                with col3:
+                                    queryable_count = int(total_criteria * queryability_ratio)
+                                    st.metric("검증 가능한 기준", f"{queryable_count}개")
+
+                            except Exception as e:
+                                st.error(f"❌ 기준 분석 실패: {e}")
+                                st.exception(e)
+                    else:
+                        st.warning("QueryableCriteriaAnalyzer를 사용할 수 없습니다. GEMINI_API_KEY를 확인해주세요.")
+            else:
+                st.info("임상시험명과 기준 텍스트를 입력하고 분석을 실행해주세요.")
+
+else:
+    if not CLINICAL_TRIAL_AVAILABLE:
+        st.info("임상시험 스크리닝 기능을 사용하려면 clinical_trial_agent.py 파일이 필요합니다.")

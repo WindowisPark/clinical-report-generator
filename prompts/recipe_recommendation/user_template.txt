@@ -1,0 +1,79 @@
+## 질환 정보
+
+**질환명:** {{DISEASE_NAME}}
+
+{{SCHEMA_INFO}}
+
+## 추천 대상
+
+이미 다음 **4개 핵심 레시피**는 자동 실행됩니다:
+1. `get_patient_count_by_disease_keyword` (전체 환자 수)
+2. `get_demographic_distribution_by_disease` (성별/연령 분포)
+3. `analyze_screened_regional_distribution` (지역 분포)
+4. `get_top_prescribed_ingredients_by_disease` (상위 처방 성분)
+
+**당신의 임무:**
+위 4개를 **제외**하고, 추가로 이 질환의 특성을 잘 보여줄 수 있는 레시피를 **정확히 {{TARGET_COUNT}}개** 추천하세요.
+
+## 사용 가능한 레시피 목록
+
+{{RECIPE_LIST}}
+
+## 추천 기준
+
+1. **질환 특성 적합성**
+   - 질환명에서 질환의 종류(만성/급성, 흔함/희귀 등)를 추론
+   - 질환 특성에 맞는 분석 관점 선택
+
+2. **데이터 실행 가능성**
+   - 위 스키마 정보를 참고하여 실제 데이터가 존재하는지 확인
+   - 필요한 컬럼이 없는 레시피는 제외
+
+3. **분석 다양성**
+   - 비용, 시간, 처방, 치료 등 **다양한 측면을 균형있게** 포함
+   - 한 카테고리에 편중되지 않도록 주의
+
+4. **비즈니스 가치**
+   - 제약회사의 의사결정에 실질적으로 도움이 되는 분석
+   - 시장 진입, 약물 개발, 임상시험 등에 활용 가능한 인사이트
+
+## 중요 제약사항
+
+- ✅ **정확히 {{TARGET_COUNT}}개**를 추천하세요 (더 많거나 적으면 안 됨)
+- ✅ 레시피 이름을 **정확하게** 입력하세요 (오타 금지)
+- ❌ 위 4개 핵심 레시피는 **절대 포함하지 마세요**
+- ❌ 사용 가능한 레시피 목록에 없는 것은 추천 불가
+
+{{OUTPUT_VALIDATION}}
+
+## 출력 형식
+
+JSON만 반환하세요 (코드 블록이나 설명 없이):
+
+```json
+{
+  "recommended_recipes": [
+    "recipe_name_1",
+    "recipe_name_2",
+    "recipe_name_3",
+    ...
+  ],
+  "reasoning": "이 레시피들을 추천한 이유 (1-2문장)"
+}
+```
+
+**예시 - 당뇨병의 경우:**
+```json
+{
+  "recommended_recipes": [
+    "analyze_treatment_duration_by_disease",
+    "analyze_medication_adherence",
+    "get_average_cost_per_patient_by_disease",
+    "analyze_drug_combination_patterns",
+    "get_top_comorbidities_for_cohort",
+    "analyze_hospital_switching_patterns",
+    "get_prescription_change_frequency"
+  ],
+  "reasoning": "당뇨는 장기 관리가 필요한 만성질환으로, 약물 순응도와 치료 지속성이 핵심입니다. 동반질환 분석과 비용 관점을 포함하여 제약사의 시장 전략 수립에 활용할 수 있도록 구성했습니다."
+}
+```

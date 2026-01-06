@@ -1,0 +1,37 @@
+# 레시피 고유 이름
+name: analyze_drug_topn_by_hospital_tier
+
+# 레시피 설명
+description: "특정 질환을 가진 환자들 중 특정 약물 조합을 처방받은 환자들을 병원급별로 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "병원급별"
+  - "약물 TOP N"
+  - "처방패턴"
+  - "hospital tier analysis"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "대상 질환 키워드 (예: 혈증, 당뇨, 고혈압)"
+    required: true
+  - name: "drug1_ingredient"
+    type: "string"
+    description: "첫 번째 약물 성분명 (예: amlodipine)"
+    required: true
+  - name: "drug2_ingredient"
+    type: "string"
+    description: "두 번째 약물 성분명 (예: candesartan)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "hospital_level"
+  y_column: "unique_patient_count"
+  title: "병원급별 약물 처방 환자 수"

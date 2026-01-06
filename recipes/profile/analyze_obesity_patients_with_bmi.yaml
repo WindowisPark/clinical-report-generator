@@ -1,0 +1,30 @@
+# 레시피 고유 이름
+name: analyze_obesity_patients_with_bmi
+
+# 레시피 설명
+description: "비만 진단을 받은 환자들의 건강검진 BMI 데이터를 매칭하여 최신 BMI 상태를 분석합니다. 아시아/대한비만학회 기준에 따른 BMI 분류를 포함합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "비만"
+  - "BMI"
+  - "건강검진"
+  - "체중 관리"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "obesity_keyword"
+    type: "string"
+    description: "비만 관련 질환 키워드 (예: 비만)"
+    required: false
+    default: "비만"
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "bmi_category"
+  y_column: "patient_count"
+  title: "비만 환자 BMI 분포"

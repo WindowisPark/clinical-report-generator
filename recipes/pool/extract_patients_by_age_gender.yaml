@@ -1,0 +1,36 @@
+# 레시피 고유 이름
+name: extract_patients_by_age_gender
+
+# 레시피 설명
+description: "특정 연령대와 성별 조건에 맞는 환자 기본 정보를 추출하여 인구학적 코호트를 구성합니다."
+
+# 카테고리
+category: "pool"
+
+# 검색용 태그
+tags:
+  - "연령대별"
+  - "성별별"
+  - "demographic cohort"
+  - "age gender"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "min_age"
+    type: "integer"
+    description: "최소 연령 (예: 50)"
+    required: true
+  - name: "max_age"
+    type: "integer"
+    description: "최대 연령 (예: 70)"
+    required: true
+  - name: "min_visits"
+    type: "integer"
+    description: "최소 방문 횟수 (예: 3)"
+    required: true
+    default: 3
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "환자 리스트"

@@ -1,0 +1,37 @@
+# 레시피 고유 이름
+name: analyze_medical_expenses_by_patient
+
+# 레시피 설명
+description: "특정 질환 환자군의 기간별 의료비 지출 현황을 월별로 집계하여 분석합니다. 질환별, 월별 의료비 통계를 제공합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "의료비 분석"
+  - "질환별 지출"
+  - "월별 집계"
+  - "보험사별"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "분석 시작 날짜 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "분석 종료 날짜 (YYYY-MM-DD)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "line_chart"
+  x_column: "payment_month"
+  y_column: "total_amount_krw"
+  title: "월별 의료비 지출 현황"

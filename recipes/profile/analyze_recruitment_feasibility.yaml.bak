@@ -1,0 +1,55 @@
+# 레시피 고유 이름
+name: analyze_recruitment_feasibility
+
+# 레시피 설명
+description: "특정 질환 코호트에 대한 환자 모집 타당성을 분석합니다. 연령, 최소 방문 횟수 등 기준에 따라 환자 풀을 계산하고, 목표 모집 수와 비교하여 난이도를 평가합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "모집 타당성"
+  - "feasibility"
+  - "임상시험"
+  - "환자 풀"
+  - "funnel analysis"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_code_prefix"
+    type: "string"
+    description: "분석할 주 질환 코드의 시작 부분 (예: AI109)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_age"
+    type: "integer"
+    description: "자격 기준 최소 연령 (예: 18)"
+    required: true
+  - name: "max_age"
+    type: "integer"
+    description: "자격 기준 최대 연령 (예: 65)"
+    required: true
+  - name: "min_visits"
+    type: "integer"
+    description: "참여 가능 풀의 최소 방문 횟수 (예: 2)"
+    required: true
+  - name: "target_enrollment"
+    type: "integer"
+    description: "목표 모집 인원 수 (예: 30)"
+    required: true
+  - name: "enrollment_rate"
+    type: "float"
+    description: "가정하는 최종 모집 성공률 (예: 0.15)"
+    required: true
+  - name: "screening_rate"
+    type: "float"
+    description: "가정하는 스크리닝 성공률 (예: 0.25)"
+    required: true

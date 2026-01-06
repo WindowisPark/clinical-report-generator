@@ -1,0 +1,39 @@
+# 레시피 고유 이름
+name: get_demographic_distribution_by_disease
+
+# 레시피 설명
+description: "특정 질환에 대한 환자군의 인구 통계학적 분포(성별, 연령대)를 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "인구통계"
+  - "성별분석"
+  - "연령대분석"
+  - "Demographics"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "검색할 질환명 키워드 (예: 고혈압)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  # 참고: 이 쿼리는 여러 SELECT를 UNION하므로, x,y 컬럼을 특정하기 어렵습니다.
+  # 앱 코드에서 첫번째, 두번째 컬럼을 사용하도록 만들 수 있습니다.
+  # 또는, 각 SELECT문의 컬럼 별칭을 일관되게 맞춰야 합니다.
+  # 우선은 x,y를 지정하지 않고, 앱이 데이터프레임 전체를 그리도록 합니다.
+  title: "인구통계 분포"

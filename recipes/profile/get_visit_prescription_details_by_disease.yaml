@@ -1,0 +1,27 @@
+# 레시피 고유 이름
+name: get_visit_prescription_details_by_disease
+
+# 레시피 설명
+description: "특정 질환으로 병원을 방문한 환자들의 각 방문별 상세 처방 성분 내역(ingredients_list)을 조회합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "처방내역"
+  - "방문상세"
+  - "진료기록"
+  - "성분리스트"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드 (예: 2형 당뇨, 고혈압)"
+    required: true
+
+# 시각화 정보
+visualization:
+  chart_type: "table"
+  title: "방문별 상세 처방 내역"

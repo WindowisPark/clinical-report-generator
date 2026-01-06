@@ -1,0 +1,22 @@
+# 레시피 고유 이름
+name: get_demographic_distribution_by_disease
+
+# 레시피 설명
+description: "특정 질환을 가진 환자군의 성별 및 연령대별 인구 통계 분포를 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "인구통계"
+  - "성별분포"
+  - "연령분포"
+  - "데모그래픽"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_keyword"
+    type: "string"
+    description: "분석할 질환명 키워드 (예: 경도인지, 천식)"
+    required: true

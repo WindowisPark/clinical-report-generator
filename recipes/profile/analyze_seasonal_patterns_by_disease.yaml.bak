@@ -1,0 +1,29 @@
+# 레시피 고유 이름
+name: analyze_seasonal_patterns_by_disease
+
+# 레시피 설명
+description: "특정 질환 코호트의 계절별(봄/여름/가을/겨울) 환자 방문 및 비용 패턴을 분석합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "계절성"
+  - "시즈널리티"
+  - "트렌드 분석"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_code_prefix"
+    type: "string"
+    description: "분석할 질병 코드의 시작 부분 (예: AI109)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true

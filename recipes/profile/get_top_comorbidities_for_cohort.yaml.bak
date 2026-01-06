@@ -1,0 +1,38 @@
+# 레시피 고유 이름
+name: get_top_comorbidities_for_cohort
+
+# 레시피 설명
+description: "특정 질환 코호트의 주요 동반질환 Top N을 분석합니다. 최소 환자 수를 기준으로 필터링할 수 있습니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "동반질환"
+  - "comorbidity"
+  - "임상 분석"
+  - "Top N"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_code_prefix"
+    type: "string"
+    description: "분석할 주 질환 코드의 시작 부분 (예: AI109)"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "min_patient_count"
+    type: "integer"
+    description: "결과에 포함될 최소 동반질환 환자 수 (예: 50)"
+    required: true
+  - name: "top_n"
+    type: "integer"
+    description: "조회할 상위 동반질환 개수 (예: 15)"
+    required: true

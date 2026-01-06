@@ -1,0 +1,60 @@
+# 레시피 고유 이름
+name: recommend_hospitals_by_composite_score
+
+# 레시피 설명
+description: "복합 점수 기반 병원 추천 시스템입니다. 치료 효과성, 환자 만족도, 접근성을 다중 표준화 방법으로 정규화하고 가중치를 적용하여 종합 점수를 산출합니다. MVP 버전으로 내부 데이터만 활용합니다."
+
+# 카테고리
+category: "profile"
+
+# 검색용 태그
+tags:
+  - "병원 추천"
+  - "복합 점수"
+  - "Hospital Recommendation"
+  - "Composite Scoring"
+  - "치료 효과성"
+  - "환자 만족도"
+  - "접근성"
+
+# SQL 템플릿에 사용된 파라미터 목록
+parameters:
+  - name: "disease_name_keyword"
+    type: "string"
+    description: "분석의 기준이 되는 질환명 키워드"
+    required: true
+  - name: "start_date"
+    type: "date"
+    description: "조회 시작일 (YYYY-MM-DD)"
+    required: true
+  - name: "end_date"
+    type: "date"
+    description: "조회 종료일 (YYYY-MM-DD)"
+    required: true
+  - name: "effectiveness_weight"
+    type: "float"
+    description: "치료 효과성 가중치 (0.0-1.0)"
+    required: false
+    default: 0.5
+  - name: "satisfaction_weight"
+    type: "float"
+    description: "환자 만족도 가중치 (0.0-1.0)"
+    required: false
+    default: 0.3
+  - name: "accessibility_weight"
+    type: "float"
+    description: "접근성 가중치 (0.0-1.0)"
+    required: false
+    default: 0.2
+  - name: "min_patient_count"
+    type: "integer"
+    description: "최소 환자 수 (통계적 유의성 확보)"
+    required: false
+    default: 30
+
+# 시각화 정보
+visualization:
+  chart_type: "bar_chart"
+  x_column: "hospital_name"
+  y_column: "composite_score"
+  title: "병원 추천"

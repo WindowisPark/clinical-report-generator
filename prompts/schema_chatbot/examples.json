@@ -1,0 +1,26 @@
+[
+  {
+    "question": "환자의 나이 정보는 어디에 있어?",
+    "answer": "환자의 나이 정보는 `insured_person` 테이블의 `birthday` 컬럼에 있습니다.\n\n**컬럼 정보:**\n- 테이블: `insured_person`\n- 컬럼명: `birthday`\n- 타입: CHAR(8)\n- 형식: 'YYYYMMDD' (예: '19860324')\n\n**나이 계산 방법:**\n```sql\nYEAR(CURRENT_DATE) - YEAR(TO_DATE(birthday, 'yyyyMMdd'))\n```\n\n⚠️ 주의: `YEAR(birthday)`는 오류 발생! 반드시 `TO_DATE()` 사용"
+  },
+  {
+    "question": "처방 약물 정보를 가져오려면?",
+    "answer": "`prescribed_drug` 테이블을 사용하세요.\n\n**주요 컬럼:**\n- `res_drug_name`: 약물명\n- `user_id`: 환자 ID (조인 키)\n- `res_treat_start_date`: 처방 날짜 (조인 키)\n\n**조인 예시:**\n```sql\nSELECT \n    bt.user_id,\n    pd.res_drug_name\nFROM basic_treatment bt\nJOIN prescribed_drug pd \n    ON bt.user_id = pd.user_id \n    AND bt.res_treat_start_date = pd.res_treat_start_date\nWHERE bt.deleted = FALSE\n    AND pd.deleted = FALSE\n```"
+  },
+  {
+    "question": "basic_treatment 테이블에 어떤 컬럼이 있어?",
+    "answer": "`basic_treatment` 테이블은 환자의 기본 진료 정보를 저장합니다.\n\n**주요 컬럼:**\n- `user_id` (BIGINT): 환자 고유 ID\n- `res_treat_start_date` (CHAR(200)): 진료 시작일 ('YYYYMMDD' 형식)\n- `res_disease_name` (VARCHAR): 질환명\n- `deleted` (BIT): 삭제 여부 (FALSE만 조회)\n\n**관련 테이블:**\n- `insured_person` (환자 정보) - 조인 키: `user_id`\n- `prescribed_drug` (처방 약물) - 조인 키: `user_id`, `res_treat_start_date`\n\n💡 Tip: `deleted = FALSE` 조건 항상 추가하세요!"
+  },
+  {
+    "question": "res_treat_start_date로 최근 1년 데이터만 가져오려면?",
+    "answer": "`TO_DATE()` 함수를 사용해서 날짜 변환 후 필터링하세요.\n\n**올바른 방법:**\n```sql\nWHERE TO_DATE(res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE, 365)\n```\n\n❌ **틀린 방법:**\n```sql\nWHERE res_treat_start_date >= DATE_SUB(CURRENT_DATE, 365)  -- 타입 에러!\n```\n\n**이유:** `res_treat_start_date`는 CHAR(200) 타입이므로 DATE로 변환 필요합니다."
+  },
+  {
+    "question": "deleted 컬럼은 무엇이고 어떻게 사용해?",
+    "answer": "`deleted` 컬럼은 데이터 삭제 여부를 나타내는 플래그입니다.\n\n**컬럼 정보:**\n- 타입: BIT(1)\n- 값: TRUE (삭제됨) / FALSE (유효한 데이터)\n\n**사용 방법:**\n항상 WHERE 조건에 `deleted = FALSE`를 추가하여 유효한 데이터만 조회하세요.\n\n**예시:**\n```sql\nSELECT *\nFROM basic_treatment\nWHERE deleted = FALSE\n    AND res_disease_name LIKE '%고혈압%'\n```\n\n⚠️ 중요: `deleted` 컬럼이 있는 모든 테이블에서 이 조건을 포함해야 정확한 결과를 얻을 수 있습니다."
+  },
+  {
+    "question": "환자 합병증을 보려면 어떤식으로 스키마를 이용해야할까?",
+    "answer": "스키마에 '합병증' 전용 컬럼은 없지만, **여러 접근 방법**으로 합병증을 분석할 수 있습니다.\n\n**방법 1: 동일 환자의 복수 질환 기록 분석**\n같은 환자가 여러 질환을 가진 경우를 합병증으로 간주:\n```sql\nSELECT \n    bt.user_id,\n    COUNT(DISTINCT bt.res_disease_name) AS disease_count,\n    COLLECT_SET(bt.res_disease_name) AS diseases\nFROM basic_treatment bt\nWHERE bt.deleted = FALSE\n    AND TO_DATE(bt.res_treat_start_date, 'yyyyMMdd') >= DATE_SUB(CURRENT_DATE, 365)\nGROUP BY bt.user_id\nHAVING disease_count >= 2\n```\n\n**방법 2: 특정 질환과 함께 나타나는 질환 패턴**\n예: 당뇨병 환자의 합병증 (고혈압, 신부전 등):\n```sql\nWITH diabetes_patients AS (\n    SELECT DISTINCT user_id\n    FROM basic_treatment\n    WHERE deleted = FALSE\n        AND res_disease_name LIKE '%당뇨%'\n)\nSELECT \n    bt.res_disease_name AS comorbidity,\n    COUNT(DISTINCT bt.user_id) AS patient_count\nFROM basic_treatment bt\nJOIN diabetes_patients dp ON bt.user_id = dp.user_id\nWHERE bt.deleted = FALSE\n    AND bt.res_disease_name NOT LIKE '%당뇨%'\nGROUP BY bt.res_disease_name\nORDER BY patient_count DESC\n```\n\n**방법 3: ICD 코드 패턴 활용**\n`res_disease_code` 컬럼으로 질환 코드 조합 분석:\n```sql\nSELECT \n    bt.user_id,\n    COLLECT_SET(bt.res_disease_code) AS disease_codes\nFROM basic_treatment bt\nWHERE bt.deleted = FALSE\nGROUP BY bt.user_id\n```\n\n**방법 4: 처방 약물 조합으로 추정**\n여러 약물을 동시에 복용 → 복합 질환 가능성:\n```sql\nSELECT \n    pd.user_id,\n    COUNT(DISTINCT pd.res_drug_name) AS drug_count\nFROM prescribed_drug pd\nWHERE pd.deleted = FALSE\nGROUP BY pd.user_id\nHAVING drug_count >= 3\n```\n\n💡 **권장**: 분석 목적에 따라 위 방법을 조합하여 사용하세요."
+  }
+]
